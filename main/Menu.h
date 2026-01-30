@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 #include <u8g2_esp32_hal.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 typedef struct menu_element_t menu_element_t;
 

@@ -1,7 +1,8 @@
 #pragma once
 
-#include "freertos/semphr.h"
-#include "driver/pulse_cnt.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <driver/pulse_cnt.h>
 
 #include "Config.h"
 
