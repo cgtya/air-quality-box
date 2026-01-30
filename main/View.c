@@ -13,6 +13,19 @@ void view_task(void* arg)
 
 }
 
+
+// 'water_droplet', 5x10px
+static const unsigned char water_droplet[] = {
+	0x20, 0x20, 0x20, 0x70, 0x70, 0xf8, 0xf8, 0xf8, 0xf8, 0x70
+};
+
+/* UNUSED
+// 'floppy_icon', 10x10px
+static const unsigned char floppy_icon[] = {
+	0xff, 0x00, 0xa2, 0x80, 0xbe, 0x40, 0x80, 0x40, 0x80, 0x40, 0xbe, 0x40, 0xa2, 0x40, 0xa2, 0x40, 
+	0xa2, 0x40, 0xff, 0xc0
+};
+*/
 static void view_1_airgradient_base(u8g2_t* disp_u8g2)
 {
     //! clear display
@@ -29,7 +42,7 @@ static void view_1_airgradient_base(u8g2_t* disp_u8g2)
 
     
     //! pm2.5 top and bottom text
-    u8g2_SetFont(u8g2_font_mercutio_basic_nbp_tf);
+    u8g2_SetFont(disp_u8g2, u8g2_font_mercutio_basic_nbp_tf);
     u8g2_DrawStr(disp_u8g2,0,27,"PM2.5");
     u8g2_DrawStr(disp_u8g2,0,61,"ug/m3");
     
@@ -41,7 +54,7 @@ static void view_1_airgradient_base(u8g2_t* disp_u8g2)
     u8g2_DrawStr(disp_u8g2,106,27,":");
 
     //! humidity icon
-    u8g2_DrawBitmap(disp_u8g2,89,0,5,10,water_droplet)
+    u8g2_DrawBitmap(disp_u8g2,89,0,5,10,water_droplet);
 
     /* TODO bunu alttaki fonksiyona yay
     //hour and minute
@@ -112,13 +125,3 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 }
 
 
-// 'water_droplet', 5x10px
-static const unsigned char water_droplet[] = {
-	0x20, 0x20, 0x20, 0x70, 0x70, 0xf8, 0xf8, 0xf8, 0xf8, 0x70
-};
-
-// 'floppy_icon', 10x10px
-static const unsigned char floppy_icon[] = {
-	0xff, 0x00, 0xa2, 0x80, 0xbe, 0x40, 0x80, 0x40, 0x80, 0x40, 0xbe, 0x40, 0xa2, 0x40, 0xa2, 0x40, 
-	0xa2, 0x40, 0xff, 0xc0
-};

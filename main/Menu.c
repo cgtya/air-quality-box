@@ -188,6 +188,7 @@ static void next_menu_element()
     //! take display mutex
     if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
         ESP_LOGE(TAG,"Couldnt take display u8g2 mutex, timeout!");
+        return;
     }
 
     //! to check if next element rolls over to first
@@ -214,6 +215,7 @@ static void prev_menu_element()
     //! take display mutex
     if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
         ESP_LOGE(TAG,"Couldnt take display u8g2 mutex, timeout!");
+        return;
     }
 
     //! to check if previous element rolls over to last
@@ -240,6 +242,7 @@ static void select_menu_element()
     //! take display mutex
     if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
         ESP_LOGE(TAG,"Couldnt take display u8g2 mutex, timeout!");
+        return;
     }
 
     ESP_LOGI(TAG,"select menu element");
@@ -248,7 +251,11 @@ static void select_menu_element()
     //! if so return to parent menu
     if (selected_menu_element >= selected_menu->submenu_count)
     {
-        if (selected_menu->parent == NULL) return;
+        //! NULL check
+        if (selected_menu->parent == NULL) {
+            xSemaphoreGive(u8g2_mutex);
+            return;
+        }
 
         selected_menu = selected_menu->parent;
         selected_menu_element = 0;
@@ -263,16 +270,22 @@ static void select_menu_element()
     switch (((selected_menu->submenus)+selected_menu_element)->type)
     {
         case MENU:
+            //! NULL check
+            if (selected_menu->submenus == NULL) {
+                xSemaphoreGive(u8g2_mutex);
+                return;
+            }
+
             //! set selected menu
             selected_menu = ((selected_menu->submenus)+selected_menu_element);
+
+            //! reset selected element
+            selected_menu_element = 0;
 
             //! update display
             menu_element_update(&u8g2);
             u8g2_SendBuffer(&u8g2);
-
-            //! give display mutex
-            xSemaphoreGive(u8g2_mutex);
-            return;
+            break;
         
         case VIEW:
             //! reset menu variables
@@ -284,15 +297,13 @@ static void select_menu_element()
 
             //! start view task
 
-
-
-            //! give display mutex
-            xSemaphoreGive(u8g2_mutex);
-            return;
-        
+            break;
+            
         default:
             break;
-    }
+        }
+    //! give display mutex
+    xSemaphoreGive(u8g2_mutex);
 }
 
 
@@ -304,7 +315,12 @@ void menu_task(void* arg)
     menu_element_update(&u8g2);
     u8g2_SendBuffer(&u8g2);
 
-    xSemaphoreTake()
+    if (xSemaphoreTake(rotary_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG,"Couldnt take rotary mutex, timeout!");
+        // TODO maybe start view here??
+        vTaskDelete(NULL);
+    }
+
     ESP_LOGI(TAG,"menu_inp_handler task started");
 
     while (current_disp_mode == MENU)
