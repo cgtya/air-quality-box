@@ -31,8 +31,10 @@ struct menu_element_t
     menu_type_t type;
 };
 
-
-void menu_bg_draw(u8g2_t* disp_u8g2);
-void menu_element_update(u8g2_t* disp_u8g2);
-
-void menu_input_handler_task(void* arg);
+/**
+ *  menu task that reads encoder input and 
+ *  draws the menu on screen
+ * 
+ *  @param arg argument to be passed in task creation (does nothing)
+ */
+void menu_task(void* arg);

@@ -12,6 +12,8 @@ pcnt_channel_handle_t rot_pcnt_chan_b = NULL;
 pcnt_unit_handle_t rot_but_pcnt_unit = NULL;
 pcnt_channel_handle_t rot_pcnt_chan_but = NULL;
 
+SemaphoreHandle_t rotary_mutex;
+
 esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr, 
                             pcnt_channel_handle_t* pcnt_chan_a_ptr,
                             pcnt_channel_handle_t* pcnt_chan_b_ptr)
@@ -110,6 +112,14 @@ esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
+    }
+
+    //! Create rotary mutex
+    rotary_mutex = xSemaphoreCreateMutex();
+    //! Check if its initialized
+    if (rotary_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create mutex for rotary obj.");
+        return ESP_FAIL;
     }
 
     return ESP_OK;

@@ -1,3 +1,6 @@
+#pragma once
+
+#include "freertos/semphr.h"
 #include "driver/pulse_cnt.h"
 
 #include "Config.h"
@@ -8,6 +11,8 @@ extern pcnt_channel_handle_t rot_pcnt_chan_b;
 
 extern pcnt_unit_handle_t rot_but_pcnt_unit;
 extern pcnt_channel_handle_t rot_pcnt_chan_but;
+
+extern SemaphoreHandle_t rotary_mutex;
 
 /**
  * @brief starts the pulse counter unit for the rotary encoder 
