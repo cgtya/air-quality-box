@@ -34,3 +34,5 @@ struct menu_element_t
 
 void menu_bg_draw(u8g2_t* disp_u8g2);
 void menu_element_update(u8g2_t* disp_u8g2);
+
+void menu_input_handler_task(void* arg);

@@ -3,6 +3,7 @@
 
 #include "Menu.h"
 #include "Display.h"
+#include "Rotary.h"
 
 static const char* TAG = "Menu";
 
@@ -66,9 +67,9 @@ static menu_element_t main_menu_items[] = {
     { .name = "Ayarlar", .submenus = settings_items, .submenu_count = 4, .action = NULL, .parent = &main_menu, .type = MENU }
 };
 
-
 static menu_element_t* selected_menu = &main_menu;
 static uint8_t selected_menu_element = 0;
+
 
 void menu_bg_draw(u8g2_t* disp_u8g2)
 {
@@ -131,6 +132,7 @@ void menu_element_update(u8g2_t* disp_u8g2)
     //! ----- Selected item -----
     if (back_buttn_var == 0) {
         //! if back button selected:
+        u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
         u8g2_DrawStr(disp_u8g2,33,38,"Geri don");
     } else {
         //! displays differ for each menu element type
@@ -178,4 +180,100 @@ void menu_element_update(u8g2_t* disp_u8g2)
         //! write previous element by default
         u8g2_DrawStr(disp_u8g2,28,12,selected_menu->submenus[selected_menu_element-1].name);
     }
+}
+
+void next_menu_element()
+{
+    if (selected_menu_element == selected_menu->submenu_count) {
+        selected_menu_element = 0;
+    } else {
+        selected_menu_element++;
+    }
+
+    ESP_LOGI(TAG,"next menu element: %d",selected_menu_element);
+    
+    menu_element_update(&u8g2);
+    u8g2_SendBuffer(&u8g2);
+    return;
+}
+
+void prev_menu_element()
+{
+    
+    if (selected_menu_element <= 0) {
+        selected_menu_element = selected_menu->submenu_count;
+    } else {
+        selected_menu_element--;
+    }
+
+    ESP_LOGI(TAG,"prev menu element: %d",selected_menu_element);
+
+    menu_element_update(&u8g2);
+    u8g2_SendBuffer(&u8g2);
+    return;
+}
+
+void select_menu_element()
+{
+    ESP_LOGI(TAG,"select menu element");
+    
+    //! check to see if go back button was selected
+    //! if so return to parent menu
+    if (selected_menu_element >= selected_menu->submenu_count)
+    {
+        if (selected_menu->parent == NULL) return;
+
+        selected_menu = selected_menu->parent;
+        selected_menu_element = 0;
+        menu_element_update(&u8g2);
+        u8g2_SendBuffer(&u8g2);
+        return;
+    }
+
+    //! if selected element was a menu, enter the menu
+    //! if selected element was anything else, do action (or something else ig)
+    switch (((selected_menu->submenus)+selected_menu_element)->type)
+    {
+        case MENU:
+            selected_menu = ((selected_menu->submenus)+selected_menu_element);
+            menu_element_update(&u8g2);
+            u8g2_SendBuffer(&u8g2);
+            return;
+        
+        default:
+            break;
+    }
+}
+
+
+void menu_input_handler_task(void* arg)
+{
+    int pcnt_value = 0;
+
+    ESP_LOGI(TAG,"menu_inp_handler task started");
+
+    while (1)
+    {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        pcnt_unit_get_count(rot_pcnt_unit,&pcnt_value);
+
+        if (pcnt_value >=4){
+            pcnt_unit_clear_count(rot_pcnt_unit);
+            next_menu_element();
+        } else if (pcnt_value <= -4){
+            pcnt_unit_clear_count(rot_pcnt_unit);
+            prev_menu_element();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+        pcnt_unit_get_count(rot_but_pcnt_unit,&pcnt_value);
+
+        if (pcnt_value >=1)
+        {
+            pcnt_unit_clear_count(rot_but_pcnt_unit);
+            select_menu_element();
+        }
+    }
+
+    vTaskDelete(NULL);
 }

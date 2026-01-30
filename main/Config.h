@@ -7,8 +7,9 @@
 #define PIN_SCL1 1
 #define DISPLAY_I2C_ADDR 0x3c
 
-#define ROT_A_PIN 5
-#define ROT_B_PIN 7
-#define PCNT_HIGH_LIMIT 32
-#define PCNT_LOW_LIMIT  -32
+#define ROT_A_PIN 7
+#define ROT_B_PIN 5
+#define ROT_BUT_PIN 6
+#define PCNT_HIGH_LIMIT 100
+#define PCNT_LOW_LIMIT  -100
 #define ROTARY_GLITCH_NS 10000
