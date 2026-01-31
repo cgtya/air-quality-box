@@ -1,16 +1,112 @@
 #include <stdint.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <esp_log.h>
 
 #include "View.h"
 #include "Menu.h"
 #include "Display.h"
+#include "Rotary.h"
 
-static uint8_t selected_view = 0;
+static const char* TAG = "View";
 
-static void view_1_airgradient();
+static uint8_t selected_view = 1;
+static uint8_t display_sleep = 0;
+
+static void view_1_airgradient_base(u8g2_t* disp_u8g2);
+static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info);
+
 
 void view_task(void* arg)
 {
+    //! set selected view if specified when starting the view task
+    if (arg != NULL) selected_view = (uint8_t)arg;
 
+    //! rotary pulse counter variable
+    int pcnt_value = 0;
+
+    //! take display and rotary mutexes
+    if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG,"Couldnt get u8g2 display mutex");
+        vTaskDelete(NULL);
+    }
+
+    if (xSemaphoreTake(rotary_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG,"Couldnt get rotary encoder mutex");
+        xSemaphoreGive(u8g2_mutex);
+        vTaskDelete(NULL);
+    }
+
+    //! write view base on display
+    switch (selected_view)
+    {
+    case 1:
+        view_1_airgradient_base(&u8g2);
+        break;
+    
+    default:
+        ESP_LOGW(TAG,"Selected view doesnt exist. Setting default view");
+        selected_view = 1;
+        view_1_airgradient_base(&u8g2);
+        break;
+    }
+
+    //! TODO just to see if view works. probably should delete this
+    u8g2_SendBuffer(&u8g2);
+
+    ESP_LOGI(TAG,"view_task STARTED");
+
+    while (current_display_mode == VIEW)
+    {
+        //! read rotary BUTTON, if screen is on switch to menu, else wake display
+        pcnt_unit_get_count(rot_but_pcnt_unit,&pcnt_value);
+
+        if (pcnt_value >= 1) {
+            //! clear pcnt
+            pcnt_unit_clear_count(rot_but_pcnt_unit);
+
+            switch (display_sleep)
+            {
+            case 0:     //! if display is not asleep
+                //! set display mode
+                current_display_mode = MENU;
+                continue;
+
+            default:    //! if display is asleep
+                //  TODO wake from sleep
+                continue;
+            }
+        }
+
+        //if display is asleep read rotary, if rotary was activated, wake display
+        if (display_sleep != 0) {
+            pcnt_unit_get_count(rot_pcnt_unit,&pcnt_value);
+            if (pcnt_value >= 4 || pcnt_value <= -4) {
+                display_sleep = 0;
+                // TODO wake display
+            }
+        }
+
+        // TODO sleep display
+
+
+        
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    
+    //! release mutexes
+    xSemaphoreGive(u8g2_mutex);
+    xSemaphoreGive(rotary_mutex);
+    
+    //! start menu task
+    esp_err_t err;
+    err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+    if (err != pdTRUE) ESP_LOGE(TAG,"Error while starting menu_task task");
+    
+    
+    ESP_LOGI(TAG,"view_task DELETED");
+    //! delete this task
+    vTaskDelete(NULL);
 }
 
 
@@ -49,9 +145,6 @@ static void view_1_airgradient_base(u8g2_t* disp_u8g2)
     //! co2 top and bottom text
     u8g2_DrawStr(disp_u8g2,39,27,"CO2");
     u8g2_DrawStr(disp_u8g2,39,61,"ppm");
-    
-    //! clock colon
-    u8g2_DrawStr(disp_u8g2,106,27,":");
 
     //! humidity icon
     u8g2_DrawBitmap(disp_u8g2,89,0,5,10,water_droplet);
@@ -87,17 +180,10 @@ static void view_1_airgradient_base(u8g2_t* disp_u8g2)
 
 static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 {
+    
     //! differ placement and font for each different type of data
     switch (info->type)
     {
-    case MINUTE:
-        
-        break;
-
-    case HOUR:
-    
-        break;
-
     case VOC:
     
         break;

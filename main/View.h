@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 
-
 typedef enum
 {
     PM1p0 = 0,
@@ -12,13 +11,7 @@ typedef enum
     HUMIDITY,
     TEMP,
     VOC,
-    CO2,
-    YEAR,
-    MONTH,
-    DAY,
-    HOUR,
-    MINUTE,
-    SECOND
+    CO2
 } disp_data_type;
 
 typedef union
@@ -32,14 +25,6 @@ typedef union
     float voc_index;
 
     uint16_t co2;
-
-    uint8_t year;
-    uint8_t month;
-    uint8_t day;
-
-    uint8_t hour;
-    uint8_t minute;
-
 } disp_data;
 
 typedef struct
@@ -48,3 +33,4 @@ typedef struct
     disp_data_type type;
 } disp_info;
 
+void view_task(void* arg);

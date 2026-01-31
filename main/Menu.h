@@ -5,6 +5,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+
 typedef struct menu_element_t menu_element_t;
 
 typedef void (*menu_action_t)(void);
@@ -32,6 +33,8 @@ struct menu_element_t
     menu_element_t* parent;
     menu_type_t type;
 };
+
+extern menu_type_t current_display_mode;
 
 /**
  *  menu task that reads encoder input and 
