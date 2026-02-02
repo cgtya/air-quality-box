@@ -14,6 +14,7 @@ esp_err_t init_display() {
     u8g2_esp32_hal_t u8g2_esp32_hal = U8G2_ESP32_HAL_DEFAULT;
     u8g2_esp32_hal.bus.i2c.sda = PIN_SDA1;
     u8g2_esp32_hal.bus.i2c.scl = PIN_SCL1;
+    u8g2_esp32_hal.i2c_port = I2C_NUM_1;
     
     u8g2_esp32_hal_init(u8g2_esp32_hal);
 
