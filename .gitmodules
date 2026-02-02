@@ -7,3 +7,6 @@
 [submodule "components/sen5x"]
 	path = components/sen5x
 	url = git@github.com:cgtya/sen5x.git
+[submodule "components/u8g2-hal-esp-idf"]
+	path = components/u8g2-hal-esp-idf
+	url = git@github.com:cgtya/u8g2-hal-esp-idf.git
