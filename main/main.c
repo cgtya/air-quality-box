@@ -6,6 +6,7 @@
 #include "Menu.h"
 #include "Display.h"
 #include "Rotary.h"
+#include "Devices.h"
 
 static const char* TAG = "main";
 
@@ -14,6 +15,9 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(3000));
 
     init_display();
+
+    set_up_devices();
+
     rotary_pcnt_init(&rot_pcnt_unit,&rot_pcnt_chan_a,&rot_pcnt_chan_b);
     rot_but_pcnt_init(&rot_but_pcnt_unit,&rot_pcnt_chan_but);
 

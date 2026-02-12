@@ -7,6 +7,7 @@
 #include "Menu.h"
 #include "Display.h"
 #include "Rotary.h"
+#include "Devices.h"
 
 static const char* TAG = "View";
 
