@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <esp_log.h>
 #include <i2cdev.h>
+#include <time.h>
 
 typedef enum
 {
@@ -52,7 +53,6 @@ typedef struct
 
 esp_err_t set_up_devices();
 
-extern i2c_dev_t ds3231;
 extern bool rtc_batt_dead;
 
 extern i2c_dev_t sen54;
@@ -60,3 +60,6 @@ extern i2c_dev_t sen54;
 extern QueueHandle_t data_queue;
 
 extern struct tm sys_time;
+
+bool rtc_check_and_save_date(uint8_t* nums);
+bool rtc_check_and_save_time(uint8_t* nums);
