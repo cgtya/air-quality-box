@@ -8,6 +8,7 @@
 #include "Rotary.h"
 #include "Devices.h"
 #include "System.h"
+#include "View.h"
 
 static const char* TAG = "main";
 
@@ -32,10 +33,11 @@ void app_main(void)
     }
     */
 
-    err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+    current_display_mode = VIEW;
+    err = xTaskCreatePinnedToCore(view_task,"view_task",4096,NULL,3,NULL,tskNO_AFFINITY);
     if (err != pdTRUE)
     {
-        ESP_LOGE(TAG,"Error while starting menu_task task");
+        ESP_LOGE(TAG,"Error while starting view_task");
     }
     
     vTaskDelete(NULL);
