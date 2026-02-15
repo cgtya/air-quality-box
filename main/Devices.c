@@ -47,8 +47,10 @@ bool s8_available = false;
 // send date and time to data queue every second
 void rtc_check_task(void* arg)
 {
-    ESP_LOGI(TAG,"RTC task started");
+    ESP_LOGI(TAG,"rtc_check_task: RTC task started");
     struct tm old_sys_time;
+    rtc_batt_dead = false;
+
     while (1)
     {
         if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(100)) != pdTRUE)
@@ -137,7 +139,7 @@ static esp_err_t set_up_ds3231()
     } 
     else
     {
-        ESP_LOGI(TAG,"RTC Battery is dead!");
+        ESP_LOGW(TAG,"RTC Battery is dead!");
     }
 
     if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(1000)) != pdTRUE)
@@ -226,7 +228,7 @@ bool rtc_check_and_save_time(uint8_t* nums)
     // take sys_time mutex
     if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(1000)) != pdTRUE)
     {
-        ESP_LOGE(TAG, "rtc_check_and_save_time: couldnt take sys_time mutex.");
+        ESP_LOGE(TAG, "rtc_check_and_save_time: couldnt take sys_time mutex1.");
         return false;
     }
 
@@ -235,9 +237,10 @@ bool rtc_check_and_save_time(uint8_t* nums)
     // to the rtcs flash and not sys_time
     // we update the sys_time here manually
     if (rtc_batt_dead) ds3231_get_time(&ds3231, &sys_time);
-    
-    // nums array   0: hour  1: minute  2: second
 
+    xSemaphoreGive(sys_time_mutex);
+
+    // nums array   0: hour  1: minute  2: second
     // hour control 00-23
     if ((nums[0] > 23)) return false;
 
@@ -246,6 +249,14 @@ bool rtc_check_and_save_time(uint8_t* nums)
 
     // second control 00-59
     if ((nums[2] > 59)) return false;
+
+
+    // take sys_time mutex
+    if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(1000)) != pdTRUE)
+    {
+        ESP_LOGE(TAG, "rtc_check_and_save_time: couldnt take sys_time mutex2.");
+        return false;
+    }
 
     // create temp time struct and fill with new time values
     struct tm temp_time;
@@ -276,14 +287,16 @@ bool rtc_check_and_save_time(uint8_t* nums)
         return false;
     }
 
-    rtc_batt_dead = false;
-
     // start rtc task to update system time
-    BaseType_t errX;
-    errX = xTaskCreatePinnedToCore(rtc_check_task,"rtc_check_task",4096,NULL,3,NULL,tskNO_AFFINITY);
-    if (errX != pdTRUE) 
+    // if it wasnt started at boot because of a dead battery
+    if (rtc_batt_dead)
     {
-        ESP_LOGE(TAG,"Error while starting rtc_check_task!");
+        BaseType_t errX;
+        errX = xTaskCreatePinnedToCore(rtc_check_task,"rtc_check_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+        if (errX != pdTRUE) 
+        {
+            ESP_LOGE(TAG,"Error while starting rtc_check_task!");
+        }
     }
 
     ESP_LOGI(TAG, "Time set successfully! %02u.%02u.%02u",nums[0],nums[1],nums[2]);
@@ -341,9 +354,113 @@ void sen54_task(void* arg)
 
     sen5x_available = true;
 
+    bool data_ready_flag = false;
+    sen5x_data_t sen5x_buf;
+    uint32_t sensor_status;
+    disp_info temp_info;
+
+    disp_data_type sen54_data_types[] = { HUMIDITY, TEMP, PM10p0, PM1p0, PM2p5, PM4p0, VOC};
+
+    float* sen5x_buf_ptrs[] = { &(sen5x_buf.ambient_humidity), &(sen5x_buf.ambient_temperature),
+                               &(sen5x_buf.mass_concentration_pm10_0), &(sen5x_buf.mass_concentration_pm1_0),
+                               &(sen5x_buf.mass_concentration_pm2_5), &(sen5x_buf.mass_concentration_pm4_0),
+                               &(sen5x_buf.voc_index) };
+
+    // twice a second, read data ready flag,
+    // if available, read data and push to queues
+    // if not, read sensor status
     while (sen5x_available)
     {
         vTaskDelay(pdMS_TO_TICKS(500));
+
+        // read data ready flag
+        err = sen5x_read_data_ready(&sen54, &data_ready_flag);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG,"sen54_task: Communication error with sen54 sensor! (while reading data ready flag)");
+            continue;
+        }
+
+        // while new data is not ready, check sensor status
+        if (!data_ready_flag)
+        {
+            err = sen5x_read_device_status(&sen54,&sensor_status);
+            if (err != ESP_OK)
+            {
+                ESP_LOGE(TAG,"sen54_task: Communication error with sen54 sensor! (while reading status)");
+                continue;
+            }
+
+            err = sen5x_clear_device_status(&sen54);
+            if (err != ESP_OK)
+            {
+                ESP_LOGE(TAG,"sen54_task: Communication error with sen54 sensor! (while clearing status)");
+            }
+            
+            if (sensor_status & SEN5X_STATUS_FAN_ERROR)
+            {
+                ESP_LOGE(TAG, "sen54_task: status: Fan Failure! (refer to manual bit 4)");
+            }
+
+            if (sensor_status & SEN5X_STATUS_LASER_ERROR)
+            {
+                ESP_LOGE(TAG, "sen54_task: status: Laser Failure! (refer to manual bit 5)");
+            }
+
+            if (sensor_status & SEN5X_STATUS_RHT_ERROR)
+            {
+                ESP_LOGE(TAG, "sen54_task: status: RHT communication error! (refer to manual bit 6)");
+            }
+
+            if (sensor_status & SEN5X_STATUS_GAS_ERROR)
+            {
+                ESP_LOGE(TAG, "sen54_task: status: Gas sensor error! (refer to manual bit 7)");
+            }
+
+            if (sensor_status & SEN5X_STATUS_FAN_CLEANING)
+            {
+                ESP_LOGI(TAG, "sen54_task: status: Fan cleaning active (refer to manual bit 19)");
+            }
+
+            if (sensor_status & SEN5X_STATUS_SPEED_WARNING)
+            {
+                ESP_LOGW(TAG, "sen54_task: status: Fan speed out of range! (refer to manual bit 21)");
+            }
+
+            continue;
+        }
+
+        err = sen5x_read_measurement(&sen54,&sen5x_buf);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG,"sen54_task: Communication error with sen54 sensor! (while reading measurements)");
+            continue;
+        }
+
+        // push data to data logging queue
+        if (data_logging)
+        {
+            for (uint8_t i = 0; i < 7; i++)
+            {
+                memcpy(&(temp_info.data),sen5x_buf_ptrs[i],sizeof(float));
+                temp_info.type = sen54_data_types[i];
+                if (xQueueSendToBack(data_queue,&temp_info,pdMS_TO_TICKS(200)) != pdTRUE)
+                    ESP_LOGE(TAG, "sen54_task: couldnt push to data queue, timeout. probably full queue");
+            }
+        }
+
+        // push data to display queue
+        if (current_display_mode == VIEW)
+        {
+            for (uint8_t i = 0; i < 7; i++)
+            {
+                memcpy(&(temp_info.data),sen5x_buf_ptrs[i],sizeof(float));
+                temp_info.type = sen54_data_types[i];
+                if (xQueueSendToBack(view_queue,&temp_info,pdMS_TO_TICKS(200)) != pdTRUE)
+                    ESP_LOGE(TAG, "sen54_task: couldnt push to view queue, timeout. probably full queue");
+            }
+        }
+
     }
 
     sen5x_reset(&sen54);
@@ -406,6 +523,9 @@ void s8_task(void* arg)
     {
         vTaskDelay(pdMS_TO_TICKS(2000));
 
+        // TODO errors out generally when
+        // tasks start and stop for example,
+        // menu task stops and view task starts
         err = senseair_s8_read_all(s8_sensor,&status,&co2);
         if (err != ESP_OK) 
         {
