@@ -2,6 +2,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <esp_log.h>
+#include <u8g2.h>
 
 #include "View.h"
 #include "Menu.h"
