@@ -125,8 +125,8 @@ void view_task(void* arg)
 
     while (current_display_mode == VIEW)
     {
-        // if display is awake..
-        if (!display_sleep)
+        // if display is awake and sleep isnt off (0)
+        if (!display_sleep && sleep_timer)
         {
             // and if current tick is more than last tick + sleep time in ticks
             // go to sleep
