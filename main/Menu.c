@@ -68,10 +68,10 @@ static menu_element_t main_menu_items[] = {
     { .name = "Ayarlar", .submenus = settings_items, .submenu_count = 5, .action = NULL, .parent = &main_menu, .type = MENU }
 };
 
+static uint8_t menu_timeout = 10;
 static menu_element_t* selected_menu = &main_menu;
 static uint8_t selected_menu_element_idx = 0;
 menu_type_t current_display_mode = MENU;
-
 
 static void menu_bg_draw(u8g2_t* disp_u8g2)
 {
@@ -287,6 +287,7 @@ static void select_menu_element()
     {
         // NULL check
         if (selected_menu->parent == NULL) {
+            switch_to_view(0);
             xSemaphoreGive(u8g2_mutex);
             return;
         }
@@ -365,17 +366,33 @@ void menu_task(void* arg)
 
     ESP_LOGI(TAG,"menu_task STARTED");
 
+
+    // last button press time
+    TickType_t last_act = xTaskGetTickCount();
+    const TickType_t timeout_time_in_tick = pdMS_TO_TICKS(menu_timeout*1000);
+
     // read encoder pcnt periodically
     while (current_display_mode == MENU)
     {
+        // if current tick is more than last act tick + timeout time in ticks
+        if (xTaskGetTickCount() > timeout_time_in_tick+last_act)
+        {
+            current_display_mode = VIEW;
+            xSemaphoreGive(u8g2_mutex);
+            switch_to_view(0);
+            continue;
+        }
+
         vTaskDelay(pdMS_TO_TICKS(10));
         pcnt_unit_get_count(rot_pcnt_unit,&pcnt_value);
 
         if (pcnt_value >=4){
             pcnt_unit_clear_count(rot_pcnt_unit);
+            last_act = xTaskGetTickCount();
             next_menu_element();
         } else if (pcnt_value <= -4){
             pcnt_unit_clear_count(rot_pcnt_unit);
+            last_act = xTaskGetTickCount();
             prev_menu_element();
         }
 
@@ -385,6 +402,7 @@ void menu_task(void* arg)
         if (pcnt_value >=1)
         {
             pcnt_unit_clear_count(rot_but_pcnt_unit);
+            last_act = xTaskGetTickCount();
             select_menu_element();
         }
     }
