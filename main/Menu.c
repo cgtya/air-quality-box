@@ -374,13 +374,18 @@ void menu_task(void* arg)
     // read encoder pcnt periodically
     while (current_display_mode == MENU)
     {
-        // if current tick is more than last act tick + timeout time in ticks
-        if (xTaskGetTickCount() > timeout_time_in_tick+last_act)
+        // if menu timeout isnt disabled (0)
+        if (menu_timeout)
         {
-            current_display_mode = VIEW;
-            xSemaphoreGive(u8g2_mutex);
-            switch_to_view(0);
-            continue;
+            // if current tick is more than last act tick + timeout time in ticks
+            // exit menu
+            if (xTaskGetTickCount() > timeout_time_in_tick+last_act)
+            {
+                current_display_mode = VIEW;
+                xSemaphoreGive(u8g2_mutex);
+                switch_to_view(0);
+                continue;
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -425,28 +430,32 @@ static void num_select_bg_draw(u8g2_t *disp_u8g2, const num_vars var_to_chg)
         return;
     }
 
-    u8g2_SetFont(disp_u8g2, u8g2_font_luRS12_tr);
+    u8g2_SetFont(disp_u8g2, u8g2_font_Wizzard_tr);
     u8g2_ClearBuffer(disp_u8g2);
     switch (var_to_chg)
     {
     case TIME_VAR:
-        u8g2_DrawStr(disp_u8g2,2,20,"Saat Ayari");
+        u8g2_DrawStr(disp_u8g2,10,12,"Saat Ayari");
         break;
 
     case DATE_VAR:
-        u8g2_DrawStr(disp_u8g2,2,20,"Tarih Ayari");
+        u8g2_DrawStr(disp_u8g2,10,12,"Tarih Ayari");
         break;
 
     case DISP_TIMEOUT_VAR:
-        u8g2_DrawStr(disp_u8g2,2,20,"Ekrn zmn asim");
+        u8g2_DrawStr(disp_u8g2,5,12,"Ekrn zmn asimi");
+
+        u8g2_DrawStr(disp_u8g2,0,60,"en az: 5 - hep acik: 0");
         break;
 
     case MENU_TIMEOUT_VAR:
-        u8g2_DrawStr(disp_u8g2,2,20,"Ayr zmn asim");
+        u8g2_DrawStr(disp_u8g2,5,12,"Menu zmn asimi");
+
+        u8g2_DrawStr(disp_u8g2,0,60,"en az: 5 - hep acik: 0");
         break;
 
     default:
-        u8g2_DrawStr(disp_u8g2,2,20,"sanirim bozuk");
+        u8g2_DrawStr(disp_u8g2,0,12,"sanirim bozuk");
         break;
     }
 
@@ -471,7 +480,7 @@ static void num_select_upd(u8g2_t *disp_u8g2, const int8_t change_value,
         // 2-3 num selector control
         if (nums[1] == 255) 
         {
-            ESP_LOGE(TAG,"Number selector: Num2 selected on non 2 or 3 numselector!");
+            ESP_LOGW(TAG,"Number selector: Num2 selected on non 2 or 3 numselector! (ignore if end of num selecting)");
             return;
         }
 
@@ -510,74 +519,75 @@ static void num_select_upd(u8g2_t *disp_u8g2, const int8_t change_value,
 
     // clear previous numbers
     u8g2_SetDrawColor(disp_u8g2,0);
-    u8g2_DrawBox(disp_u8g2,0,25,128,39);
+    u8g2_DrawBox(disp_u8g2,0,16,128,28);
     u8g2_SetDrawColor(disp_u8g2,1);
 
     u8g2_SetFont(disp_u8g2, u8g2_font_luRS12_tr);
 
-    char buf[7];
+    char buf[15];
 
     switch (var_to_chg)
     {
     case TIME_VAR:
         sprintf(buf,"%02u.",nums[0]);
-        u8g2_DrawStr(disp_u8g2,0,40,buf);
+        u8g2_DrawStr(disp_u8g2,0,35,buf);
         sprintf(buf,"%02u.",nums[1]);
-        u8g2_DrawStr(disp_u8g2,30,40,buf);
+        u8g2_DrawStr(disp_u8g2,30,35,buf);
         sprintf(buf,"%02u",nums[2]);
-        u8g2_DrawStr(disp_u8g2,60,40,buf);
+        u8g2_DrawStr(disp_u8g2,60,35,buf);
         break;
 
     case DATE_VAR:
         sprintf(buf,"%02u.",nums[0]);
-        u8g2_DrawStr(disp_u8g2,0,40,buf);
+        u8g2_DrawStr(disp_u8g2,0,35,buf);
         sprintf(buf,"%02u.",nums[1]);
-        u8g2_DrawStr(disp_u8g2,30,40,buf);
+        u8g2_DrawStr(disp_u8g2,30,35,buf);
         sprintf(buf,"20%02u",nums[2]);
-        u8g2_DrawStr(disp_u8g2,60,40,buf);
+        u8g2_DrawStr(disp_u8g2,60,35,buf);
         break;
         
-    // TODO bunlari duzelt
     case DISP_TIMEOUT_VAR:
-        u8g2_DrawStr(disp_u8g2,2,24,"Ekrn zmn asim");
+        sprintf(buf,"%02u saniye",nums[0]);
+        u8g2_DrawStr(disp_u8g2,0,35,buf);
         break;
 
     case MENU_TIMEOUT_VAR:
-        u8g2_DrawStr(disp_u8g2,2,24,"Ayr zmn asim");
+        sprintf(buf,"%02u saniye",nums[0]);
+        u8g2_DrawStr(disp_u8g2,0,35,buf);
         break;
 
     default:
-        u8g2_DrawStr(disp_u8g2,2,24,"sanirim bozuk");
+        u8g2_DrawStr(disp_u8g2,0,35,"sanirim bozuk");
         break;
     }
 
     switch (selected_num)
     {
     case 1:
-        u8g2_DrawHLine(disp_u8g2,2,43,18);
-        u8g2_DrawHLine(disp_u8g2,1,44,20);
-        u8g2_DrawHLine(disp_u8g2,1,45,20);
-        u8g2_DrawHLine(disp_u8g2,2,46,18);
+        u8g2_DrawHLine(disp_u8g2,2,38,18);
+        u8g2_DrawHLine(disp_u8g2,1,39,20);
+        u8g2_DrawHLine(disp_u8g2,1,40,20);
+        u8g2_DrawHLine(disp_u8g2,2,41,18);
         break;
     case 2:
-        u8g2_DrawHLine(disp_u8g2,32,43,18);
-        u8g2_DrawHLine(disp_u8g2,31,44,20);
-        u8g2_DrawHLine(disp_u8g2,31,45,20);
-        u8g2_DrawHLine(disp_u8g2,32,46,18);
+        u8g2_DrawHLine(disp_u8g2,32,38,18);
+        u8g2_DrawHLine(disp_u8g2,31,39,20);
+        u8g2_DrawHLine(disp_u8g2,31,40,20);
+        u8g2_DrawHLine(disp_u8g2,32,41,18);
         break;
     case 3:
-        u8g2_DrawHLine(disp_u8g2,62,43,18);
-        u8g2_DrawHLine(disp_u8g2,61,44,20);
-        u8g2_DrawHLine(disp_u8g2,61,45,20);
-        u8g2_DrawHLine(disp_u8g2,62,46,18);
+        u8g2_DrawHLine(disp_u8g2,62,38,18);
+        u8g2_DrawHLine(disp_u8g2,61,39,20);
+        u8g2_DrawHLine(disp_u8g2,61,40,20);
+        u8g2_DrawHLine(disp_u8g2,62,41,18);
 
         // make the year indicator longer
         if (var_to_chg == DATE_VAR)
         {
-            u8g2_DrawHLine(disp_u8g2,80,43,20);
-            u8g2_DrawHLine(disp_u8g2,81,44,20);
-            u8g2_DrawHLine(disp_u8g2,81,45,20);
-            u8g2_DrawHLine(disp_u8g2,80,46,20);
+            u8g2_DrawHLine(disp_u8g2,80,38,20);
+            u8g2_DrawHLine(disp_u8g2,81,39,20);
+            u8g2_DrawHLine(disp_u8g2,81,40,20);
+            u8g2_DrawHLine(disp_u8g2,80,41,20);
         }
         break;
 
@@ -635,7 +645,16 @@ void num_select_task(void* arg)
         nums[2] = (uint8_t)(sys_time.tm_year-100);   //years since 1900
         num_selector_cnt = 3;
         break;
-    //TODO add timeout vars...
+
+    case DISP_TIMEOUT_VAR:
+        nums[0] = sleep_timer;
+        num_selector_cnt = 1;
+        break;
+
+    case MENU_TIMEOUT_VAR:
+        nums[0] = menu_timeout;
+        num_selector_cnt = 1;
+        break;
     
     default:
         ESP_LOGE(TAG,"num_select_task: Invalid arg var_to_chg!");
@@ -701,8 +720,17 @@ void num_select_task(void* arg)
         // TODO might print an icon on screen based on returned value
         rtc_check_and_save_time(nums);
         break;
-    // TODO do the other num selectors
-    
+
+    case DISP_TIMEOUT_VAR:
+        // TODO might print an icon on screen based on returned value
+        if ((nums[0] > 4) || (nums[0] == 0)) sleep_timer = nums[0];
+        break;
+
+    case MENU_TIMEOUT_VAR:
+        // TODO might print an icon on screen based on returned value
+        if ((nums[0] > 4) || (nums[0] == 0)) menu_timeout = nums[0];
+        break;
+        
     default:
         break;
     }
