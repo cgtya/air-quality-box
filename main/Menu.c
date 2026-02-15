@@ -1,3 +1,6 @@
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <u8g2_esp32_hal.h>
 #include <string.h>
 #include <esp_log.h>
 
@@ -264,7 +267,7 @@ static void prev_menu_element()
     return;
 }
 
-// forward decleration
+// forward declaration
 void num_select_task(void* arg);
 
 static void select_menu_element()
@@ -489,7 +492,7 @@ static void num_select_upd(u8g2_t *disp_u8g2, const int8_t change_value,
 
     // clear previous numbers
     u8g2_SetDrawColor(disp_u8g2,0);
-    u8g2_DrawBox(disp_u8g2,0,21,128,44);
+    u8g2_DrawBox(disp_u8g2,0,25,128,39);
     u8g2_SetDrawColor(disp_u8g2,1);
 
     u8g2_SetFont(disp_u8g2, u8g2_font_luRS12_tr);
@@ -533,30 +536,30 @@ static void num_select_upd(u8g2_t *disp_u8g2, const int8_t change_value,
     switch (selected_num)
     {
     case 1:
-        u8g2_DrawHLine(disp_u8g2,1,43,18);
-        u8g2_DrawHLine(disp_u8g2,0,44,20);
-        u8g2_DrawHLine(disp_u8g2,0,45,20);
-        u8g2_DrawHLine(disp_u8g2,1,46,18);
+        u8g2_DrawHLine(disp_u8g2,2,43,18);
+        u8g2_DrawHLine(disp_u8g2,1,44,20);
+        u8g2_DrawHLine(disp_u8g2,1,45,20);
+        u8g2_DrawHLine(disp_u8g2,2,46,18);
         break;
     case 2:
-        u8g2_DrawHLine(disp_u8g2,31,43,18);
-        u8g2_DrawHLine(disp_u8g2,30,44,20);
-        u8g2_DrawHLine(disp_u8g2,30,45,20);
-        u8g2_DrawHLine(disp_u8g2,31,46,18);
+        u8g2_DrawHLine(disp_u8g2,32,43,18);
+        u8g2_DrawHLine(disp_u8g2,31,44,20);
+        u8g2_DrawHLine(disp_u8g2,31,45,20);
+        u8g2_DrawHLine(disp_u8g2,32,46,18);
         break;
     case 3:
-        u8g2_DrawHLine(disp_u8g2,61,43,18);
-        u8g2_DrawHLine(disp_u8g2,60,44,20);
-        u8g2_DrawHLine(disp_u8g2,60,45,20);
-        u8g2_DrawHLine(disp_u8g2,61,46,18);
+        u8g2_DrawHLine(disp_u8g2,62,43,18);
+        u8g2_DrawHLine(disp_u8g2,61,44,20);
+        u8g2_DrawHLine(disp_u8g2,61,45,20);
+        u8g2_DrawHLine(disp_u8g2,62,46,18);
 
         // make the year indicator longer
         if (var_to_chg == DATE_VAR)
         {
-            u8g2_DrawHLine(disp_u8g2,79,43,20);
-            u8g2_DrawHLine(disp_u8g2,80,44,20);
-            u8g2_DrawHLine(disp_u8g2,80,45,20);
-            u8g2_DrawHLine(disp_u8g2,79,46,20);
+            u8g2_DrawHLine(disp_u8g2,80,43,20);
+            u8g2_DrawHLine(disp_u8g2,81,44,20);
+            u8g2_DrawHLine(disp_u8g2,81,45,20);
+            u8g2_DrawHLine(disp_u8g2,80,46,20);
         }
         break;
 
@@ -583,6 +586,21 @@ void num_select_task(void* arg)
     nums[2] = 255;
 
 
+    // take sys time mutex, would be better if it was only
+    // taken when time or date was getting modified but whatever
+    if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(1000)) != pdTRUE)
+    {
+        ESP_LOGE(TAG,"num_select_task: Couldnt take sys time mutex!");
+
+        //back to menu
+        current_display_mode = MENU;
+        esp_err_t err;
+        err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+        if (err != pdTRUE) ESP_LOGE(TAG,"num_select_task:  Error while starting menu_task task");
+
+        vTaskDelete(NULL);
+    }
+    
     // fill the buffers with current values
     switch (var_to_chg)
     {
@@ -613,6 +631,8 @@ void num_select_task(void* arg)
         vTaskDelete(NULL);
         break;
     }
+
+    xSemaphoreGive(sys_time_mutex);
 
     // take encoder mutex
     if (xSemaphoreTake(rotary_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {

@@ -7,6 +7,7 @@
 #include "Display.h"
 #include "Rotary.h"
 #include "Devices.h"
+#include "System.h"
 
 static const char* TAG = "main";
 
@@ -22,6 +23,15 @@ void app_main(void)
     rot_but_pcnt_init(&rot_but_pcnt_unit,&rot_pcnt_chan_but);
 
     BaseType_t err;
+
+    /*
+    err = xTaskCreatePinnedToCore(diag_task,"diag_task",2048,NULL,3,NULL,tskNO_AFFINITY);
+    if (err != pdTRUE)
+    {
+        ESP_LOGE(TAG,"Error while starting diag_task task");
+    }
+    */
+
     err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
     if (err != pdTRUE)
     {

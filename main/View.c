@@ -17,6 +17,67 @@ static uint8_t display_sleep = 0;
 static void view_1_airgradient_base(u8g2_t* disp_u8g2);
 static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info);
 
+static void view_update(u8g2_t* disp_u8g2)
+{
+    uint8_t items = uxQueueMessagesWaiting(view_queue);
+    
+    // if the queue is empty, return
+    if (items == 0) return;
+    
+    disp_info temp;
+
+    // for every item in the queue
+    for (; items > 0; items--)
+    {
+        // take one from queue
+        if (xQueueReceive(view_queue,&temp,pdMS_TO_TICKS(200)) != pdTRUE)
+        {
+            ESP_LOGE(TAG, "view_update: couldnt get item from view_queue, timeout!");
+            continue;
+        }
+
+        //print as the selected view
+        switch (selected_view)
+        {
+        case 1:
+            view_1_airgradient_upd(disp_u8g2,&temp); 
+            break;
+        
+        default:
+            ESP_LOGE(TAG, "view_update: selected view not available!");
+            break;
+        }
+    }
+
+    if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(1000)) != pdTRUE)
+    {
+        ESP_LOGE(TAG, "view_update: Couldnt take sys time mutex!");
+        u8g2_SendBuffer(disp_u8g2);
+        return;
+    }
+
+    temp.type = HOUR;
+    temp.data.hour = sys_time.tm_hour;
+
+    //print time on selected view
+    switch (selected_view)
+    {
+    case 1:
+        view_1_airgradient_upd(disp_u8g2,&temp);
+        temp.type = MINUTE;
+        temp.data.minute = sys_time.tm_min;
+        view_1_airgradient_upd(disp_u8g2,&temp);
+        break;
+    
+    default:
+        ESP_LOGE(TAG, "view_update: selected view not available!");
+        break;
+    }
+
+    xSemaphoreGive(sys_time_mutex);
+
+    u8g2_SendBuffer(disp_u8g2);
+}
 
 void view_task(void* arg)
 {
@@ -90,7 +151,7 @@ void view_task(void* arg)
 
         // TODO sleep display
 
-
+        view_update(&u8g2);
         
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -148,7 +209,7 @@ static void view_1_airgradient_base(u8g2_t* disp_u8g2)
     u8g2_DrawStr(disp_u8g2,39,61,"ppm");
 
     //! humidity icon
-    u8g2_DrawBitmap(disp_u8g2,89,0,5,10,water_droplet);
+    u8g2_DrawBitmap(disp_u8g2,89,0,1,10,water_droplet);
 
     /* TODO bunu alttaki fonksiyona yay
     //hour and minute
@@ -181,7 +242,7 @@ static void view_1_airgradient_base(u8g2_t* disp_u8g2)
 
 static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 {
-    
+    char buf[10];
     //! differ placement and font for each different type of data
     switch (info->type)
     {
@@ -194,7 +255,13 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
         break;
 
     case CO2:
-    
+        u8g2_SetDrawColor(disp_u8g2,0);
+        u8g2_DrawBox(disp_u8g2,37,28,50,20);
+
+        u8g2_SetDrawColor(disp_u8g2,1);
+        u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
+        sprintf(buf,"%u",info->data.co2);
+        u8g2_DrawStr(disp_u8g2,39,47,buf);
         break;
 
     case TEMP:
@@ -205,6 +272,24 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
     
         break;
     
+    case HOUR:
+        u8g2_SetDrawColor(disp_u8g2,0);
+        u8g2_DrawBox(disp_u8g2,88,14,40,16);
+
+        u8g2_SetDrawColor(disp_u8g2,1);
+        u8g2_SetFont(disp_u8g2,u8g2_font_luRS08_tr);
+        sprintf(buf,"%02u",info->data.hour);
+        u8g2_DrawStr(disp_u8g2,91,27,buf);
+
+        u8g2_DrawStr(disp_u8g2,107,26,":");
+        break;
+    
+    case MINUTE:
+        u8g2_SetFont(disp_u8g2,u8g2_font_luRS08_tr);
+        sprintf(buf,"%02u",info->data.minute);
+        u8g2_DrawStr(disp_u8g2,113,27,buf);
+        break;
+
     default:
         break;
     }
