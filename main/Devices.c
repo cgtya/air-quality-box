@@ -480,9 +480,9 @@ void s8_task(void* arg)
 
     // configure the sensor
     senseair_s8_config_t config = {
-        .uart_port = UART0_PORT,
-        .tx_pin = UART0_TX,
-        .rx_pin = UART0_RX,
+        .uart_port = UART1_PORT,
+        .tx_pin = UART1_TX,
+        .rx_pin = UART1_RX,
         .slave_addr = SENSEAIR_S8_DEFAULT_ADDR
     };
 
