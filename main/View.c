@@ -12,7 +12,7 @@
 static const char* TAG = "View";
 
 static uint8_t selected_view = 1;
-static uint8_t display_sleep = 0;
+uint8_t sleep_timer = 10;
 
 static void view_1_airgradient_base(u8g2_t* disp_u8g2);
 static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info);
@@ -81,6 +81,8 @@ static void view_update(u8g2_t* disp_u8g2)
 
 void view_task(void* arg)
 {
+    bool display_sleep = 0;
+
     //! set selected view if specified when starting the view task
     if (arg != NULL) selected_view = (uint8_t)arg;
 
@@ -89,12 +91,12 @@ void view_task(void* arg)
 
     //! take display and rotary mutexes
     if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
-        ESP_LOGE(TAG,"Couldnt get u8g2 display mutex");
+        ESP_LOGE(TAG,"view_task: Couldnt get u8g2 display mutex");
         vTaskDelete(NULL);
     }
 
     if (xSemaphoreTake(rotary_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
-        ESP_LOGE(TAG,"Couldnt get rotary encoder mutex");
+        ESP_LOGE(TAG,"view_task: Couldnt get rotary encoder mutex");
         xSemaphoreGive(u8g2_mutex);
         vTaskDelete(NULL);
     }
@@ -113,46 +115,70 @@ void view_task(void* arg)
         break;
     }
 
-    //! TODO just to see if view works. probably should delete this
     u8g2_SendBuffer(&u8g2);
 
     ESP_LOGI(TAG,"view_task STARTED");
 
+    // last button press time
+    TickType_t last_act = xTaskGetTickCount();
+    const TickType_t sleep_time_in_tick = pdMS_TO_TICKS(sleep_timer*1000);
+
     while (current_display_mode == VIEW)
     {
-        //! read rotary BUTTON, if screen is on switch to menu, else wake display
+        // if display is awake..
+        if (!display_sleep)
+        {
+            // and if current tick is more than last tick + sleep time in ticks
+            // go to sleep
+            if (xTaskGetTickCount() > sleep_time_in_tick+last_act)
+            {
+                display_sleep = true;
+                u8g2_SetPowerSave(&u8g2,1);
+            }
+        }
+        
+        // read rotary BUTTON, if screen is on switch to menu, else wake display
         pcnt_unit_get_count(rot_but_pcnt_unit,&pcnt_value);
 
-        if (pcnt_value >= 1) {
-            //! clear pcnt
+        if (pcnt_value >= 1)
+        {
+            // clear pcnt
             pcnt_unit_clear_count(rot_but_pcnt_unit);
-
-            switch (display_sleep)
+            
+            if (display_sleep)
             {
-            case 0:     //! if display is not asleep
-                //! set display mode
+                display_sleep = false;
+                u8g2_SetPowerSave(&u8g2,0);
+                last_act = xTaskGetTickCount();
+            }
+            else
+            {
+                // change to menu
                 current_display_mode = MENU;
-                continue;
-
-            default:    //! if display is asleep
-                //  TODO wake from sleep
-                continue;
             }
+            
         }
 
-        //if display is asleep read rotary, if rotary was activated, wake display
-        if (display_sleep != 0) {
-            pcnt_unit_get_count(rot_pcnt_unit,&pcnt_value);
-            if (pcnt_value >= 4 || pcnt_value <= -4) {
-                display_sleep = 0;
-                // TODO wake display
+        // read rotary, if display is asleep wake display, always update last activation
+        pcnt_unit_get_count(rot_pcnt_unit,&pcnt_value);
+        if (pcnt_value >= 4 || pcnt_value <= -4)
+        {
+            // clear pulse counter
+            pcnt_unit_clear_count(rot_pcnt_unit);
+
+            if (display_sleep)
+            {
+                display_sleep = false;
+                u8g2_SetPowerSave(&u8g2,0);
             }
+
+            last_act = xTaskGetTickCount();
         }
 
-        // TODO sleep display
-
+        // update the view with newest available data
         view_update(&u8g2);
         
+        // 10hz
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     
@@ -200,7 +226,7 @@ static void view_1_airgradient_base(u8g2_t* disp_u8g2)
 
     
     //! pm2.5 top and bottom text
-    u8g2_SetFont(disp_u8g2, u8g2_font_mercutio_basic_nbp_tf);
+    u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
     u8g2_DrawStr(disp_u8g2,0,27,"PM2.5");
     u8g2_DrawStr(disp_u8g2,0,61,"ug/m3");
     
@@ -208,50 +234,45 @@ static void view_1_airgradient_base(u8g2_t* disp_u8g2)
     u8g2_DrawStr(disp_u8g2,39,27,"CO2");
     u8g2_DrawStr(disp_u8g2,39,61,"ppm");
 
-    //! humidity icon
-    u8g2_DrawBitmap(disp_u8g2,89,0,1,10,water_droplet);
+    // VOC idx
+    u8g2_DrawStr(disp_u8g2,93,44,"VOCs");
 
-    /* TODO bunu alttaki fonksiyona yay
-    //hour and minute
-    currU8g2.setCursor(96,27);
-    currU8g2.printf("%u:%02u",buf_ptr->hour,buf_ptr->minute);
-    
-    currU8g2.setCursor(93,44);
-    currU8g2.print("tVOC:");
-    currU8g2.setCursor(93,58);
-    currU8g2.printf(" %0.f",buf_ptr->vocIndex);
+    // temp degree and C
+    u8g2_DrawHLine(disp_u8g2,24,0,2);
+    u8g2_DrawHLine(disp_u8g2,24,3,2);
+    u8g2_DrawVLine(disp_u8g2,23,1,2);
+    u8g2_DrawVLine(disp_u8g2,26,1,2);
+    u8g2_DrawStr(disp_u8g2,28,9,"C");
 
 
-
-    currU8g2.setCursor(0,47);
-    currU8g2.setFont(u8g2_font_lubB12_tn);
-    //pm2.5
-    currU8g2.printf("%0.f",buf_ptr->massConcentrationPm2p5);
-
-    currU8g2.setCursor(39,47);
-    //CO2
-    currU8g2.printf("%d",buf_ptr->co2);
-
-
-    currU8g2.setFont(u8g2_font_mercutio_basic_nbp_tf);
-    currU8g2.setCursor(0,10);
-    //temperature
-    currU8g2.printf("%.1f °C",buf_ptr->ambientTemperature);
-    */
+    // humidity icon
+    u8g2_DrawBitmap(disp_u8g2,84,0,1,10,water_droplet);
 }
 
 static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 {
     char buf[10];
-    //! differ placement and font for each different type of data
+    // differ placement and font for each different type of data
     switch (info->type)
     {
     case VOC:
-    
+        u8g2_SetDrawColor(disp_u8g2,0);
+        u8g2_DrawBox(disp_u8g2,88,45,40,33);
+
+        u8g2_SetDrawColor(disp_u8g2,1);
+        u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
+        sprintf(buf,"%.0f",info->data.voc_index);
+        u8g2_DrawStr(disp_u8g2,93,58,buf);
         break;
 
     case PM2p5:
-    
+        u8g2_SetDrawColor(disp_u8g2,0);
+        u8g2_DrawBox(disp_u8g2,0,28,36,20);
+
+        u8g2_SetDrawColor(disp_u8g2,1);
+        u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
+        sprintf(buf,"%.0f",info->data.PM2p5);
+        u8g2_DrawStr(disp_u8g2,0,47,buf);
         break;
 
     case CO2:
@@ -265,11 +286,24 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
         break;
 
     case TEMP:
-    
+        u8g2_SetDrawColor(disp_u8g2,0);
+        u8g2_DrawBox(disp_u8g2,0,0,23,13);
+
+        u8g2_SetDrawColor(disp_u8g2,1);
+        u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
+        sprintf(buf,"%.1f",info->data.amb_temperature);
+        u8g2_DrawStr(disp_u8g2,0,9,buf);
         break;
 
     case HUMIDITY:
-    
+        u8g2_SetDrawColor(disp_u8g2,0);
+        u8g2_DrawBox(disp_u8g2,89,0,39,13);
+
+        u8g2_SetDrawColor(disp_u8g2,1);
+        u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
+        sprintf(buf,"%.1f",info->data.rel_humidity);
+        u8g2_DrawStr(disp_u8g2,101,9,buf);
+        u8g2_DrawStr(disp_u8g2,91,9,"%");
         break;
     
     case HOUR:
@@ -277,15 +311,15 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
         u8g2_DrawBox(disp_u8g2,88,14,40,16);
 
         u8g2_SetDrawColor(disp_u8g2,1);
-        u8g2_SetFont(disp_u8g2,u8g2_font_luRS08_tr);
+        u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
         sprintf(buf,"%02u",info->data.hour);
         u8g2_DrawStr(disp_u8g2,91,27,buf);
 
-        u8g2_DrawStr(disp_u8g2,107,26,":");
+        u8g2_DrawStr(disp_u8g2,106,26,":");
         break;
     
     case MINUTE:
-        u8g2_SetFont(disp_u8g2,u8g2_font_luRS08_tr);
+        u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
         sprintf(buf,"%02u",info->data.minute);
         u8g2_DrawStr(disp_u8g2,113,27,buf);
         break;
