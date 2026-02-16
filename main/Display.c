@@ -9,6 +9,8 @@ SemaphoreHandle_t u8g2_mutex;
 
 static const char* TAG = "Display";
 
+_Atomic bool inverse_color = false;
+
 esp_err_t init_display() {
     //! display config
     u8g2_esp32_hal_t u8g2_esp32_hal = U8G2_ESP32_HAL_DEFAULT;
@@ -45,4 +47,25 @@ esp_err_t init_display() {
     u8g2_SetPowerSave(&u8g2, 0);    //! wake up display
 
     return ESP_OK;
+}
+
+void switch_inverse_color(void)
+{
+    if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(200)) != pdTRUE)
+    {
+        ESP_LOGE(TAG, "switch_inverse_color: Couldnt take u8g2 mutex!");
+        return;
+    }
+
+    if (inverse_color)
+    {
+        u8g2_SendF(&u8g2,"c", 0xa6);
+        inverse_color = false;
+    }
+    else
+    {
+        u8g2_SendF(&u8g2,"c", 0xa7);
+        inverse_color = true;
+    }
+    xSemaphoreGive(u8g2_mutex);
 }
