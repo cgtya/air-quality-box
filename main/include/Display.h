@@ -5,5 +5,7 @@
 
 extern u8g2_t u8g2;
 extern SemaphoreHandle_t u8g2_mutex;
+extern _Atomic bool inverse_color;
 
 esp_err_t init_display();
+void switch_inverse_color(void);

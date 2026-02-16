@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdatomic.h>
 
 typedef struct menu_element_t menu_element_t;
 
@@ -30,7 +31,7 @@ struct menu_element_t
     menu_type_t type;
 };
 
-extern menu_type_t current_display_mode;
+extern _Atomic menu_type_t current_display_mode;
 
 /**
  *  menu task that reads encoder input and 
