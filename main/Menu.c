@@ -3,6 +3,7 @@
 #include <u8g2_esp32_hal.h>
 #include <string.h>
 #include <esp_log.h>
+#include <stdatomic.h>
 
 #include "Menu.h"
 #include "Display.h"
@@ -21,6 +22,18 @@ typedef enum
     DISP_TIMEOUT_VAR
 } num_vars;
 
+// struct for toggleable bool variables,
+// if needed, mutexes can be given if not in should be given NULL.
+// if needed, switching functions can be given if not in should be given NULL.
+typedef struct toggle_info
+{
+    _Atomic bool* var_ptr;
+    menu_action_t switch_func;
+} toggle_info;
+
+static toggle_info inverse_color_info = { .var_ptr = &inverse_color, .switch_func = switch_inverse_color };
+static toggle_info data_logging_info = { .var_ptr = &data_logging, .switch_func = NULL };
+
 static const char* TAG = "Menu";
 
 // Forward declarations
@@ -38,7 +51,7 @@ static menu_element_t time_date_items[] = {
 };
 
 static menu_element_t display_items[] = {
-    { .name = "Ters Renk", .submenus = NULL, .submenu_count = 0, .action = NULL, .parent = &settings_items[2], .type = TOGGLE },
+    { .name = "Ters Renk", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(&inverse_color_info), .parent = &settings_items[2], .type = TOGGLE },
     { .name = "Ayr zmn asim",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)MENU_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL },
     { .name = "Ekrn zmn asim",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)DISP_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL }
 };
@@ -52,7 +65,7 @@ static menu_element_t sensors_items[] = {
 
 static menu_element_t settings_items[] = {
     { .name = "Tarih-Saat", .submenus = time_date_items, .submenu_count = 2, .action = NULL, .parent = &main_menu_items[1], .type = MENU },
-    { .name = "Veri kaydi", .submenus = NULL, .submenu_count = 0, .action = NULL, .parent = &main_menu_items[1], .type = TOGGLE },
+    { .name = "Veri kaydi", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(&data_logging_info), .parent = &main_menu_items[1], .type = TOGGLE },
     { .name = "Ekran",   .submenus = display_items,   .submenu_count = 3, .action = NULL, .parent = &main_menu_items[1], .type = MENU },
     { .name = "Sensorler",   .submenus = sensors_items,   .submenu_count = 2, .action = NULL, .parent = &main_menu_items[1], .type = MENU },
     { .name = "FW Update",   .submenus = NULL,   .submenu_count = 0, .action = enter_download_mode, .parent = &main_menu_items[1], .type = BUTTON }
@@ -71,8 +84,44 @@ static menu_element_t main_menu_items[] = {
 static uint8_t menu_timeout = 10;
 static menu_element_t* selected_menu = &main_menu;
 static uint8_t selected_menu_element_idx = 0;
-menu_type_t current_display_mode = MENU;
 
+// atomic because expecting access from multiple tasks
+_Atomic menu_type_t current_display_mode = MENU;
+
+// ---------- TOGGLE SWITCH ----------
+
+// this function draws the toggle switch on the menu based on the status parameter
+static void draw_toggle(u8g2_t* disp_u8g2, toggle_info* toggle)
+{
+    // clear the toggle space first
+    u8g2_SetDrawColor(disp_u8g2,0);
+    u8g2_DrawBox(disp_u8g2,107,27,16,10);
+
+    u8g2_SetDrawColor(disp_u8g2,1);
+
+    // draw frame
+    u8g2_DrawHLine(disp_u8g2,108,27,14);
+    u8g2_DrawHLine(disp_u8g2,108,36,14);
+
+    u8g2_DrawVLine(disp_u8g2,107,28,8);
+    u8g2_DrawVLine(disp_u8g2,122,28,8);
+    
+    // draw switch based on status
+    if (*(toggle->var_ptr))
+    {
+        u8g2_DrawHLine(disp_u8g2,109,29,7);
+        u8g2_DrawHLine(disp_u8g2,109,34,7);
+        u8g2_DrawBox(disp_u8g2,109,30,3,4);
+        u8g2_DrawBox(disp_u8g2,113,30,3,4);
+    }
+    else
+    {
+        u8g2_DrawFrame(disp_u8g2,114,29,7,6);
+    }
+}
+
+// this function clears the display and
+// draws the menu background (selection frame, up and down arrow)
 static void menu_bg_draw(u8g2_t* disp_u8g2)
 {
     // Clear display buffer
@@ -108,6 +157,9 @@ static void menu_bg_draw(u8g2_t* disp_u8g2)
     u8g2_DrawLine(disp_u8g2,14,57,20,51);
 }
 
+// this function clears menu text boxes and
+// fills the text boxes based on selected menu option
+// also draws toggle switch or other elements if needed
 static void menu_element_update(u8g2_t* disp_u8g2)
 {
     u8g2_SetDrawColor(disp_u8g2,0);
@@ -131,7 +183,7 @@ static void menu_element_update(u8g2_t* disp_u8g2)
      *      submenu_count = back button on top
      */
     
-    // ----- Selected item -----
+    // ----- selected item -----
     if (back_buttn_var == 0) {
         // if back button selected:
         u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
@@ -141,20 +193,25 @@ static void menu_element_update(u8g2_t* disp_u8g2)
         switch (selected_menu->submenus[selected_menu_element_idx].type)
         {
             case TOGGLE:
-                u8g2_SetFont(disp_u8g2,u8g2_font_luRS08_tr);
+                u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
                 u8g2_DrawStr(disp_u8g2,33,36,selected_menu->submenus[selected_menu_element_idx].name);
-                // TODO add toggle switch render function
+                draw_toggle(disp_u8g2,(toggle_info*)(selected_menu->submenus[selected_menu_element_idx].action));
+                break;
+
+            case MENU:
+                u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
+                u8g2_DrawStr(disp_u8g2,33,38,selected_menu->submenus[selected_menu_element_idx].name);
                 break;
             
             default:
-                u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
+                u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
                 u8g2_DrawStr(disp_u8g2,33,38,selected_menu->submenus[selected_menu_element_idx].name);
                 break;
         }
     }
 
     // set font for next and previous items
-    u8g2_SetFont(disp_u8g2,u8g2_font_luRS08_tr);
+    u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
 
     // ----- bottom (next) item -----
     if (back_buttn_var == 1) {
@@ -213,6 +270,7 @@ static void switch_to_view(uint8_t viewnum)
     return;
 }
 
+// switches the selected menu element to the next one
 static void next_menu_element()
 {
     // take display mutex
@@ -240,6 +298,7 @@ static void next_menu_element()
     return;
 }
 
+// switches the selected menu element to the previous one
 static void prev_menu_element()
 {
     // take display mutex
@@ -275,7 +334,7 @@ static void select_menu_element()
     menu_element_t* selected_element = ((selected_menu->submenus)+selected_menu_element_idx);
     // take display mutex
     if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
-        ESP_LOGE(TAG,"Couldnt take display u8g2 mutex, timeout!");
+        ESP_LOGE(TAG,"select_menu_element: Couldnt take display u8g2 mutex, timeout!");
         return;
     }
 
@@ -338,6 +397,27 @@ static void select_menu_element()
             esp_err_t err;
             err = xTaskCreatePinnedToCore(num_select_task,"num_select_task",4096,(void*)selected_element->action,3,NULL,tskNO_AFFINITY);
             if (err != pdTRUE) ESP_LOGE(TAG,"select_menu_element: Error while starting num_select_task");
+
+            break;
+
+        case TOGGLE:
+            // give mutex as some toggles might need the display mutex
+            xSemaphoreGive(u8g2_mutex);
+
+            // check if variable toggle switching function exists
+            if (((toggle_info*)(selected_element->action))->switch_func != NULL)
+            {
+                ((toggle_info*)(selected_element->action))->switch_func();
+            }
+
+            // retake display mutex and refresh the toggle status
+            if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
+                ESP_LOGE(TAG,"select_menu_element (TOGGLE): Couldnt take display u8g2 mutex, timeout!");
+                return;
+            }
+
+            draw_toggle(&u8g2,((toggle_info*)(selected_element->action)));
+            u8g2_SendBuffer(&u8g2);
 
             break;
             

@@ -3,6 +3,7 @@
 #include <esp_log.h>
 #include <i2cdev.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #include <sen5x.h>
 #include <ds3231.h>
@@ -25,8 +26,7 @@ struct tm sys_time;
 SemaphoreHandle_t sys_time_mutex;
 
 // data logging status
-// TODO might be read and written at the same time from different tasks
-bool data_logging = false;
+_Atomic bool data_logging = false;
 
 // ds3231 rtc variables
 static i2c_dev_t ds3231;
@@ -437,7 +437,7 @@ void sen54_task(void* arg)
             continue;
         }
 
-        // push data to data logging queue
+        // push data to data logging queue if enabled
         if (data_logging)
         {
             for (uint8_t i = 0; i < 7; i++)
@@ -449,7 +449,7 @@ void sen54_task(void* arg)
             }
         }
 
-        // push data to display queue
+        // push data to display queue if currently in view
         if (current_display_mode == VIEW)
         {
             for (uint8_t i = 0; i < 7; i++)

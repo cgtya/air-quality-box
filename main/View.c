@@ -330,5 +330,3 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
     }
 
 }
-
-
