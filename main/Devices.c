@@ -12,6 +12,7 @@
 #include "Devices.h"
 #include "Menu.h"
 #include "Config.h"
+#include "Storage.h"
 
 static const char* TAG = "Devices";
 
@@ -66,11 +67,11 @@ void rtc_check_task(void* arg)
         {
             BaseType_t err;
 
-            disp_info temp = { .type = YEAR , .data.year = sys_time.tm_year };
+            disp_info temp = { .type = YEAR , .data.year = sys_time.tm_year + 1900 };
             err = xQueueSendToBack(data_queue,&temp,pdMS_TO_TICKS(100));
             if (err != pdTRUE) ESP_LOGE(TAG,"Error while pushing year to data queue! (possibly full)");
 
-            temp = (disp_info){ .type = MONTH , .data.month = sys_time.tm_mon };
+            temp = (disp_info){ .type = MONTH , .data.month = sys_time.tm_mon + 1 };
             err = xQueueSendToBack(data_queue,&temp,pdMS_TO_TICKS(100));
             if (err != pdTRUE) ESP_LOGE(TAG,"Error while pushing month to data queue! (possibly full)");
 
@@ -169,7 +170,7 @@ bool rtc_check_and_save_date(uint8_t* nums)
     // nums array   0: day (1-31)   1: month (1-12)     2: year (00-99) (20xx)
 
     // year control 2000-2099
-    // TODO should be redundant
+    // should be redundant
     if ((nums[2] > 99)) return false;
 
     // month control 1-12
@@ -305,6 +306,14 @@ bool rtc_check_and_save_time(uint8_t* nums)
 
 // ---------- SEN54 PM ----------
 
+// sen5x_fan_clean function sets this to true and the task starts the fan cleaning
+static bool fan_clean_request = false;
+
+void sen5x_fan_clean(void)
+{
+    fan_clean_request = true;
+}
+
 // initializes the sen54 sensor and periodically reads it
 void sen54_task(void* arg)
 {
@@ -359,11 +368,11 @@ void sen54_task(void* arg)
     uint32_t sensor_status;
     disp_info temp_info;
 
-    disp_data_type sen54_data_types[] = { HUMIDITY, TEMP, PM10p0, PM1p0, PM2p5, PM4p0, VOC};
+    disp_data_type sen54_data_types[] = { HUMIDITY, TEMP, PM1p0, PM2p5, PM4p0, PM10p0, VOC};
 
     float* sen5x_buf_ptrs[] = { &(sen5x_buf.ambient_humidity), &(sen5x_buf.ambient_temperature),
-                               &(sen5x_buf.mass_concentration_pm10_0), &(sen5x_buf.mass_concentration_pm1_0),
-                               &(sen5x_buf.mass_concentration_pm2_5), &(sen5x_buf.mass_concentration_pm4_0),
+                               &(sen5x_buf.mass_concentration_pm1_0), &(sen5x_buf.mass_concentration_pm2_5),
+                               &(sen5x_buf.mass_concentration_pm4_0), &(sen5x_buf.mass_concentration_pm10_0),
                                &(sen5x_buf.voc_index) };
 
     // twice a second, read data ready flag,
@@ -373,6 +382,11 @@ void sen54_task(void* arg)
     {
         vTaskDelay(pdMS_TO_TICKS(500));
 
+        if (fan_clean_request)
+        {
+            sen5x_start_fan_cleaning(&sen54);
+            fan_clean_request = false;
+        }
         // read data ready flag
         err = sen5x_read_data_ready(&sen54, &data_ready_flag);
         if (err != ESP_OK)
@@ -436,6 +450,17 @@ void sen54_task(void* arg)
             ESP_LOGE(TAG,"sen54_task: Communication error with sen54 sensor! (while reading measurements)");
             continue;
         }
+
+        /**
+         * sen5x readings:
+         * [0] - ambient humidity
+         * [1] - ambient temperature
+         * [2] - pm1.0
+         * [3] - pm2.5
+         * [4] - pm4.0
+         * [5] - pm10.0
+         * [6] - voc index
+         */
 
         // push data to data logging queue if enabled
         if (data_logging)
@@ -522,10 +547,7 @@ void s8_task(void* arg)
     while (s8_available)
     {
         vTaskDelay(pdMS_TO_TICKS(2000));
-
-        // TODO errors out generally when
-        // tasks start and stop for example,
-        // menu task stops and view task starts
+        
         err = senseair_s8_read_all(s8_sensor,&status,&co2);
         if (err != ESP_OK) 
         {
@@ -622,6 +644,8 @@ esp_err_t set_up_devices()
     }
     
     set_up_ds3231();
+
+    prepare_sdspi();
     
     // start sen54 task
     BaseType_t err;
