@@ -5,10 +5,13 @@ idf_component_register(SRCS "main.c"
                             "Display.c"
                             "Menu.c"
                             "System.c"
+                            "Storage.c"
                         REQUIRES freertos 
                             driver 
                             u8g2 
                             sen5x 
                             senseair-s8 
                             u8g2-hal-esp-idf
+                            vfs
+                            fatfs
                         INCLUDE_DIRS "include")
