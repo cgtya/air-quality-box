@@ -11,6 +11,7 @@
 #include "View.h"
 #include "System.h"
 #include "Devices.h"
+#include "Storage.h"
 
 // number selecting type setting options
 // used to distinguish which number type variable to change
@@ -32,7 +33,7 @@ typedef struct toggle_info
 } toggle_info;
 
 static toggle_info inverse_color_info = { .var_ptr = &inverse_color, .switch_func = switch_inverse_color };
-static toggle_info data_logging_info = { .var_ptr = &data_logging, .switch_func = NULL };
+static toggle_info data_logging_info = { .var_ptr = &data_logging, .switch_func = toggle_data_logging };
 
 static const char* TAG = "Menu";
 
@@ -43,6 +44,13 @@ static menu_element_t time_date_items[];
 static menu_element_t display_items[];
 static menu_element_t sensors_items[];
 
+// --- Level 4 ---
+
+static menu_element_t sen5x_items[] = {
+    { .name = "Fan temizleme", .submenus = NULL, .submenu_count = 0, .action = sen5x_fan_clean, .parent = &sensors_items[0], .type = BUTTON }
+};
+
+
 // --- Level 3: Sub-Settings ---
 
 static menu_element_t time_date_items[] = {
@@ -52,14 +60,15 @@ static menu_element_t time_date_items[] = {
 
 static menu_element_t display_items[] = {
     { .name = "Ters Renk", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(&inverse_color_info), .parent = &settings_items[2], .type = TOGGLE },
-    { .name = "Ayr zmn asim",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)MENU_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL },
-    { .name = "Ekrn zmn asim",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)DISP_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL }
+    { .name = "Ayar zmn asimi",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)MENU_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL },
+    { .name = "Ekran zmn asimi",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)DISP_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL }
 };
 
 static menu_element_t sensors_items[] = {
-    { .name = "Sen5x ayar", .submenus = NULL, .submenu_count = 0, .action = NULL, .parent = &settings_items[3], .type = MENU },
+    { .name = "Sen5x ayar", .submenus = sen5x_items, .submenu_count = 1, .action = NULL, .parent = &settings_items[3], .type = MENU },
     { .name = "S8 ayar",    .submenus = NULL, .submenu_count = 0, .action = NULL, .parent = &settings_items[3], .type = MENU }
 };
+
 
 // --- Level 2: Settings ---
 
@@ -109,14 +118,14 @@ static void draw_toggle(u8g2_t* disp_u8g2, toggle_info* toggle)
     // draw switch based on status
     if (*(toggle->var_ptr))
     {
-        u8g2_DrawHLine(disp_u8g2,109,29,7);
-        u8g2_DrawHLine(disp_u8g2,109,34,7);
-        u8g2_DrawBox(disp_u8g2,109,30,3,4);
-        u8g2_DrawBox(disp_u8g2,113,30,3,4);
+        u8g2_DrawHLine(disp_u8g2,114,29,7);
+        u8g2_DrawHLine(disp_u8g2,114,34,7);
+        u8g2_DrawBox(disp_u8g2,114,30,3,4);
+        u8g2_DrawBox(disp_u8g2,118,30,3,4);
     }
     else
     {
-        u8g2_DrawFrame(disp_u8g2,114,29,7,6);
+        u8g2_DrawFrame(disp_u8g2,109,29,7,6);
     }
 }
 
@@ -187,26 +196,29 @@ static void menu_element_update(u8g2_t* disp_u8g2)
     if (back_buttn_var == 0) {
         // if back button selected:
         u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
-        u8g2_DrawStr(disp_u8g2,33,38,"Geri don");
+        u8g2_DrawStr(disp_u8g2,15,38,"Geri don");
     } else {
         // displays differ for each menu element type
         switch (selected_menu->submenus[selected_menu_element_idx].type)
         {
             case TOGGLE:
-                u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
-                u8g2_DrawStr(disp_u8g2,33,36,selected_menu->submenus[selected_menu_element_idx].name);
                 draw_toggle(disp_u8g2,(toggle_info*)(selected_menu->submenus[selected_menu_element_idx].action));
-                break;
-
-            case MENU:
-                u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
-                u8g2_DrawStr(disp_u8g2,33,38,selected_menu->submenus[selected_menu_element_idx].name);
                 break;
             
             default:
-                u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
-                u8g2_DrawStr(disp_u8g2,33,38,selected_menu->submenus[selected_menu_element_idx].name);
                 break;
+        }
+
+        // smaller text if menu header exceeds 11 chars
+        if (strlen(selected_menu->submenus[selected_menu_element_idx].name) > 11)
+        {
+            u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
+            u8g2_DrawStr(disp_u8g2,15,36,selected_menu->submenus[selected_menu_element_idx].name);
+        }
+        else
+        {
+            u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
+            u8g2_DrawStr(disp_u8g2,15,38,selected_menu->submenus[selected_menu_element_idx].name);
         }
     }
 
@@ -264,9 +276,6 @@ static void switch_to_view(uint8_t viewnum)
 
     ESP_LOGI(TAG,"started view_task with the view id %d",viewnum);
 
-    // after this function, select_menu_element releases the u8g2 display mutex
-    // or timeout occurs TODO
-    // menu_task while loop stops and rotary mutex is released. then menu_task gets deleted
     return;
 }
 
@@ -433,19 +442,54 @@ void menu_task(void* arg)
     int pcnt_value = 0;
 
     // draw the menu background and foreground at start
-    menu_bg_draw(&u8g2);
-    menu_element_update(&u8g2);
-    u8g2_SendBuffer(&u8g2);
+    if (xSemaphoreTake(u8g2_mutex, pdMS_TO_TICKS(500)) != pdTRUE)
+    {
+        ESP_LOGE(TAG, "menu_task: couldnt take display mutex");
+    }
+    else
+    {
+        menu_bg_draw(&u8g2);
+        menu_element_update(&u8g2);
+
+        // default text based on the given task start argument
+        // currently used when indicating if num selecting was successful or not
+        switch ((uint8_t)arg)
+        {
+        case 1:
+            u8g2_SetDrawColor(&u8g2,0);
+            u8g2_DrawBox(&u8g2,1,18,125,27);
+
+            u8g2_SetDrawColor(&u8g2,1);
+            u8g2_SetFont(&u8g2,u8g2_font_luRS12_tr);
+            u8g2_DrawStr(&u8g2,15,38,"Basarili");
+            break;
+
+        case 2:
+            u8g2_SetDrawColor(&u8g2,0);
+            u8g2_DrawBox(&u8g2,1,18,125,27);
+
+            u8g2_SetDrawColor(&u8g2,1);
+            u8g2_SetFont(&u8g2,u8g2_font_luRS12_tr);
+            u8g2_DrawStr(&u8g2,15,38,"Basarisiz");
+            break;
+        
+        default:
+            break;
+        }
+
+        u8g2_SendBuffer(&u8g2);
+        xSemaphoreGive(u8g2_mutex);
+    }
+
+
 
     // take encoder mutex
     if (xSemaphoreTake(rotary_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
         ESP_LOGE(TAG,"Couldnt take rotary mutex, timeout!");
-        // TODO maybe start view here??
         vTaskDelete(NULL);
     }
 
     ESP_LOGI(TAG,"menu_task STARTED");
-
 
     // last button press time
     TickType_t last_act = xTaskGetTickCount();
@@ -462,7 +506,6 @@ void menu_task(void* arg)
             if (xTaskGetTickCount() > timeout_time_in_tick+last_act)
             {
                 current_display_mode = VIEW;
-                xSemaphoreGive(u8g2_mutex);
                 switch_to_view(0);
                 continue;
             }
@@ -506,7 +549,7 @@ static void num_select_bg_draw(u8g2_t *disp_u8g2, const num_vars var_to_chg)
 {
     // take display mutex
     if (xSemaphoreTake(u8g2_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
-        ESP_LOGE(TAG,"Couldnt take u8g2 display mutex, timeout! (num select bg draw)");
+        ESP_LOGE(TAG,"num select bg draw: Couldnt take u8g2 display mutex, timeout!");
         return;
     }
 
@@ -754,7 +797,6 @@ void num_select_task(void* arg)
     // take encoder mutex
     if (xSemaphoreTake(rotary_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
         ESP_LOGE(TAG,"num_select_task: Couldnt take rotary mutex, timeout!");
-        // TODO maybe start menu here?
         vTaskDelete(NULL);
     }
 
@@ -788,27 +830,32 @@ void num_select_task(void* arg)
         }
     }
 
+    uint8_t status = 0;
     // check and save the values
     switch (var_to_chg)
     {
     case DATE_VAR:
-        // TODO might print an icon on screen based on returned value
-        rtc_check_and_save_date(nums);
+        status = rtc_check_and_save_date(nums) ? 1 : 2;
         break;
 
     case TIME_VAR:
-        // TODO might print an icon on screen based on returned value
-        rtc_check_and_save_time(nums);
+        status = rtc_check_and_save_time(nums) ? 1 : 2;
         break;
 
     case DISP_TIMEOUT_VAR:
-        // TODO might print an icon on screen based on returned value
-        if ((nums[0] > 4) || (nums[0] == 0)) sleep_timer = nums[0];
+        if ((nums[0] > 4) || (nums[0] == 0))
+        {
+            sleep_timer = nums[0];
+            status = 1;
+        } else status = 2;
         break;
 
     case MENU_TIMEOUT_VAR:
-        // TODO might print an icon on screen based on returned value
-        if ((nums[0] > 4) || (nums[0] == 0)) menu_timeout = nums[0];
+        if ((nums[0] > 4) || (nums[0] == 0))
+        {
+            menu_timeout = nums[0];
+            status = 1;
+        } else status = 2;
         break;
         
     default:
@@ -821,7 +868,7 @@ void num_select_task(void* arg)
     // start menu task
     current_display_mode = MENU;
     esp_err_t err;
-    err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+    err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,(void*)status,3,NULL,tskNO_AFFINITY);
     if (err != pdTRUE) ESP_LOGE(TAG,"num_select_task:  Error while starting menu_task task");
 
     ESP_LOGI(TAG,"num_select_task DELETED");
