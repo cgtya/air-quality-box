@@ -22,5 +22,11 @@
 #define UART1_TX 43
 #define UART1_PORT 1
 
-#define DATA_QUEUE_SIZE 100
+#define DATA_QUEUE_SIZE 140
+#define MAX_WRITE_ERRORS 5
 #define VIEW_QUEUE_SIZE 30
+
+#define SPI2_MISO 13
+#define SPI2_SCK  12
+#define SPI2_MOSI 11
+#define SPI2_CS 10

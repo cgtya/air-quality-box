@@ -37,7 +37,7 @@ typedef union
 
     uint16_t co2;
 
-    int year;  // doesnt really matter that i hold the whole number, union is large anyways
+    int year;
     int month;
     int day;
 
@@ -67,5 +67,10 @@ extern SemaphoreHandle_t sys_time_mutex;
 // data logging status
 extern  _Atomic bool data_logging;
 
+// rtc stop flag variable
+extern bool rtc_batt_dead;
+
 bool rtc_check_and_save_date(uint8_t* nums);
 bool rtc_check_and_save_time(uint8_t* nums);
+
+void sen5x_fan_clean(void);
