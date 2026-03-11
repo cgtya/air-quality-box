@@ -61,7 +61,7 @@ esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
         .edge_gpio_num = ROT_B_PIN,
         .level_gpio_num = ROT_A_PIN,
     };
-    ESP_ERROR_CHECK(pcnt_new_channel(*pcnt_unit_ptr, &chan_b_config, pcnt_chan_b_ptr));
+    err = pcnt_new_channel(*pcnt_unit_ptr, &chan_b_config, pcnt_chan_b_ptr);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while setting channel B");
         pcnt_del_channel(*pcnt_chan_a_ptr);
