@@ -24,7 +24,7 @@ static sdmmc_host_t sd_host_conf = SDSPI_HOST_DEFAULT();
 static sdmmc_card_t* sd_card_ptr;
 static sdspi_device_config_t sdspi_conf = SDSPI_DEVICE_CONFIG_DEFAULT();
 static const char mount_point[] = "/sdcard";
-SemaphoreHandle_t sdcard_mutex = NULL;
+SemaphoreHandle_t sdcard_mutex = NULL; // TODO unused
 
 static uint8_t sd_write_errors = 0;
 
@@ -283,29 +283,29 @@ static esp_err_t send_buffer_to_sd()
     // write time
     fprintf(f, "%02u.%02u.%02u,", buf_hour, buf_minute, buf_second);
 
-    // write sensor data, leave field empty if no new data available
-    if (buf_humidity != -1) { fprintf(f, "%.2f", buf_humidity); buf_humidity = -1; }
+    // write sensor data (latest known values, empty if sensor hasn't reported yet)
+    if (buf_humidity != -1) fprintf(f, "%.2f", buf_humidity);
     fprintf(f, ",");
 
-    if (buf_temp != -1) { fprintf(f, "%.2f", buf_temp); buf_temp = -1; }
+    if (buf_temp != -1) fprintf(f, "%.2f", buf_temp);
     fprintf(f, ",");
 
-    if (buf_pm10p0 != -1) { fprintf(f, "%.1f", buf_pm10p0); buf_pm10p0 = -1; }
+    if (buf_pm10p0 != -1) fprintf(f, "%.1f", buf_pm10p0);
     fprintf(f, ",");
 
-    if (buf_pm4p0 != -1) { fprintf(f, "%.1f", buf_pm4p0); buf_pm4p0 = -1 ; }
+    if (buf_pm4p0 != -1) fprintf(f, "%.1f", buf_pm4p0);
     fprintf(f, ",");
 
-    if (buf_pm2p5 != -1) { fprintf(f, "%.1f", buf_pm2p5); buf_pm2p5 = -1 ; }
+    if (buf_pm2p5 != -1) fprintf(f, "%.1f", buf_pm2p5);
     fprintf(f, ",");
 
-    if (buf_pm1p0 != -1) { fprintf(f, "%.1f", buf_pm1p0); buf_pm1p0 = -1 ; }
+    if (buf_pm1p0 != -1) fprintf(f, "%.1f", buf_pm1p0);
     fprintf(f, ",");
 
-    if (buf_voc != -1) { fprintf(f, "%.0f", buf_voc); buf_voc = -1; }
+    if (buf_voc != -1) fprintf(f, "%.0f", buf_voc);
     fprintf(f, ",");
 
-    if (buf_co2 != 0) { fprintf(f, "%d", buf_co2); buf_co2 = 0; }
+    if (buf_co2 != 0) fprintf(f, "%d", buf_co2);
 
     if (fprintf(f, "\n") < 0)
     {
@@ -322,7 +322,7 @@ static int16_t save_queue_to_sd(UBaseType_t* item_count)
     
     int64_t temp_time = esp_timer_get_time();
 
-    bool new_data_available = false;
+
     
     for (; (*item_count) > 0; (*item_count)--)
     {
@@ -359,43 +359,35 @@ static int16_t save_queue_to_sd(UBaseType_t* item_count)
 
         case CO2:
             buf_co2 = temp_info.data.co2;
-            new_data_available = true;
             break;
 
 
         case HUMIDITY:
             buf_humidity = temp_info.data.rel_humidity;
-            new_data_available = true;
             break;
 
         case TEMP:
             buf_temp = temp_info.data.amb_temperature;
-            new_data_available = true;
             break;
 
         case PM1p0:
             buf_pm1p0 = temp_info.data.PM1p0;
-            new_data_available = true;
             break;
 
         case PM2p5:
             buf_pm2p5 = temp_info.data.PM2p5;
-            new_data_available = true;
             break;
 
         case PM4p0:
             buf_pm4p0 = temp_info.data.PM4p0;
-            new_data_available = true;
             break;
         
         case PM10p0:
             buf_pm10p0 = temp_info.data.PM10p0;
-            new_data_available = true;
             break;
 
         case VOC:
             buf_voc = temp_info.data.voc_index;
-            new_data_available = true;
             break;
 
         // the year is the first sent item every second
@@ -405,10 +397,7 @@ static int16_t save_queue_to_sd(UBaseType_t* item_count)
             // skip write operation for this second
             if (buf_year != -1)
             {
-                if (new_data_available)
-                    if (send_buffer_to_sd() != ESP_OK) sd_write_errors++;
-
-                new_data_available = false;
+                if (send_buffer_to_sd() != ESP_OK) sd_write_errors++;
             }
 
             buf_year = temp_info.data.year;
