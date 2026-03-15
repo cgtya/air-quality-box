@@ -15,7 +15,8 @@ typedef enum {
     TOGGLE,
     BUTTON,
     NUM_SEL,
-    VIEW
+    VIEW,
+    ERROR_LOG
 } menu_type_t;
 
 /**

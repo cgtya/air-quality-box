@@ -12,6 +12,9 @@
 #include "System.h"
 #include "Devices.h"
 #include "Storage.h"
+#include "ErrorLog.h"
+
+static void error_log_viewer_start(void);
 
 // number selecting type setting options
 // used to distinguish which number type variable to change
@@ -69,6 +72,12 @@ static menu_element_t sensors_items[] = {
     { .name = "S8 ayar",    .submenus = NULL, .submenu_count = 0, .action = NULL, .parent = &settings_items[3], .type = MENU }
 };
 
+static menu_element_t advanced_items[] = {
+    { .name = "Hata kaydi", .submenus = NULL, .submenu_count = 0, .action = error_log_viewer_start, .parent = &settings_items[4], .type = BUTTON },
+    { .name = "Hata kaydi temizle", .submenus = NULL, .submenu_count = 0, .action = clear_error_buffer, .parent = &settings_items[4], .type = BUTTON },
+    { .name = "FW Update",   .submenus = NULL,   .submenu_count = 0, .action = enter_download_mode, .parent = &settings_items[4], .type = BUTTON }
+};
+    
 
 // --- Level 2: Settings ---
 
@@ -77,7 +86,7 @@ static menu_element_t settings_items[] = {
     { .name = "Veri kaydi", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(&data_logging_info), .parent = &main_menu_items[1], .type = TOGGLE },
     { .name = "Ekran",   .submenus = display_items,   .submenu_count = 3, .action = NULL, .parent = &main_menu_items[1], .type = MENU },
     { .name = "Sensorler",   .submenus = sensors_items,   .submenu_count = 2, .action = NULL, .parent = &main_menu_items[1], .type = MENU },
-    { .name = "FW Update",   .submenus = NULL,   .submenu_count = 0, .action = enter_download_mode, .parent = &main_menu_items[1], .type = BUTTON }
+    { .name = "Gelismis", .submenus = advanced_items, .submenu_count = 3, .action = NULL, .parent = &main_menu_items[1], .type = MENU }
 };
 
 // --- Level 1: Main Menu ---
@@ -435,6 +444,137 @@ static void select_menu_element()
         }
     // give display mutex
     xSemaphoreGive(u8g2_mutex);
+}
+
+// ---------- ERROR LOG VIEWER ----------
+
+static void error_log_viewer_task(void* arg)
+{
+    int pcnt_value = 0;
+    uint8_t scroll_pos = 0;
+
+    // take display mutex
+    if (xSemaphoreTake(u8g2_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "error_log_viewer_task: Couldnt take u8g2 mutex");
+        current_display_mode = MENU;
+        xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+        vTaskDelete(NULL);
+    }
+
+    // take rotary mutex
+    if (xSemaphoreTake(rotary_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "error_log_viewer_task: Couldnt take rotary mutex");
+        xSemaphoreGive(u8g2_mutex);
+        current_display_mode = MENU;
+        xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+        vTaskDelete(NULL);
+    }
+
+    ESP_LOGI(TAG, "error_log_viewer_task STARTED");
+
+    // draw initial screen
+    while (current_display_mode == ERROR_LOG)
+    {
+        uint8_t count = error_log_get_count();
+
+        u8g2_ClearBuffer(&u8g2);
+        u8g2_SetDrawColor(&u8g2, 1);
+        u8g2_SetFont(&u8g2, u8g2_font_Wizzard_tr);
+
+        u8g2_DrawHLine(&u8g2, 0, 11, 128);
+
+        if (count == 0)
+        {
+            u8g2_SetFont(&u8g2, u8g2_font_Wizzard_tr);
+            u8g2_DrawStr(&u8g2, 0, 9, "Hata/Uyari Kaydi");
+            u8g2_DrawHLine(&u8g2, 0, 11, 128);
+
+            u8g2_SetFont(&u8g2, u8g2_font_luRS12_tr);
+            u8g2_DrawStr(&u8g2, 20, 42, "Kayit yok");
+        }
+        else
+        {
+            const error_log_entry_t* entry = error_log_get_entry(scroll_pos);
+            if (entry != NULL && entry->valid)
+            {
+                u8g2_SetFont(&u8g2, u8g2_font_Wizzard_tr);
+
+                // header: level + timestamp + position counter
+                char buf[24];
+                sprintf(buf, "%c %02u:%02u:%02u",
+                        entry->level, entry->hour, entry->minute, entry->second);
+                u8g2_DrawStr(&u8g2, 0, 9, buf);
+
+                sprintf(buf, "%u/%u", scroll_pos + 1, count);
+                u8g2_DrawStr(&u8g2, 100, 9, buf);
+
+                u8g2_DrawHLine(&u8g2, 0, 11, 128);
+
+                // message text: 4 lines, ~21 chars each (Wizzard font)
+                size_t msg_len = strlen(entry->message);
+                char line[22];
+
+                for (uint8_t i = 0; i < 4 && i * 21 < msg_len; i++)
+                {
+                    size_t remaining = msg_len - (i * 21);
+                    size_t copy_len = remaining < 21 ? remaining : 21;
+                    memcpy(line, entry->message + (i * 21), copy_len);
+                    line[copy_len] = '\0';
+                    u8g2_DrawStr(&u8g2, 0, 23 + (i * 13), line);
+                }
+            }
+        }
+
+        u8g2_SendBuffer(&u8g2);
+
+        // wait for input
+        while (current_display_mode == ERROR_LOG)
+        {
+            vTaskDelay(pdMS_TO_TICKS(20));
+
+            // rotary scroll
+            pcnt_unit_get_count(rot_pcnt_unit, &pcnt_value);
+            if (pcnt_value >= 4)
+            {
+                pcnt_unit_clear_count(rot_pcnt_unit);
+                if (count > 0 && scroll_pos < count - 1) scroll_pos++;
+                break; // redraw
+            }
+            else if (pcnt_value <= -4)
+            {
+                pcnt_unit_clear_count(rot_pcnt_unit);
+                if (scroll_pos > 0) scroll_pos--;
+                break; // redraw
+            }
+
+            // button press = exit
+            pcnt_unit_get_count(rot_but_pcnt_unit, &pcnt_value);
+            if (pcnt_value >= 1)
+            {
+                pcnt_unit_clear_count(rot_but_pcnt_unit);
+                current_display_mode = MENU;
+            }
+        }
+    }
+
+    // release mutexes
+    xSemaphoreGive(u8g2_mutex);
+    xSemaphoreGive(rotary_mutex);
+
+    // return to menu
+    xTaskCreatePinnedToCore(menu_task, "menu_task", 4096, NULL, 3, NULL, tskNO_AFFINITY);
+
+    ESP_LOGI(TAG, "error_log_viewer_task DELETED");
+    vTaskDelete(NULL);
+}
+
+static void error_log_viewer_start(void)
+{
+    current_display_mode = ERROR_LOG;
+
+    esp_err_t err;
+    err = xTaskCreatePinnedToCore(error_log_viewer_task, "errlog_viewer", 4096, NULL, 3, NULL, tskNO_AFFINITY);
+    if (err != pdTRUE) ESP_LOGE(TAG, "error_log_viewer_start: Error starting viewer task");
 }
 
 void menu_task(void* arg)

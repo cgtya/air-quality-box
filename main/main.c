@@ -7,8 +7,8 @@
 #include "Display.h"
 #include "Rotary.h"
 #include "Devices.h"
-#include "System.h"
 #include "View.h"
+#include "ErrorLog.h"
 
 static const char* TAG = "main";
 
@@ -19,6 +19,8 @@ void app_main(void)
     init_display();
 
     set_up_devices();
+
+    error_log_init();
 
     rotary_pcnt_init(&rot_pcnt_unit,&rot_pcnt_chan_a,&rot_pcnt_chan_b);
     rot_but_pcnt_init(&rot_but_pcnt_unit,&rot_pcnt_chan_but);
