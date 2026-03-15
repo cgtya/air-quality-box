@@ -6,6 +6,7 @@ idf_component_register(SRCS "main.c"
                             "Menu.c"
                             "System.c"
                             "Storage.c"
+                            "ErrorLog.c"
                         REQUIRES freertos 
                             driver 
                             u8g2 
