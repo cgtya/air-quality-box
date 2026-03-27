@@ -22,8 +22,8 @@ void app_main(void)
 
     error_log_init();
 
-    rotary_pcnt_init(&rot_pcnt_unit,&rot_pcnt_chan_a,&rot_pcnt_chan_b);
-    rot_but_pcnt_init(&rot_but_pcnt_unit,&rot_pcnt_chan_but);
+    rotary_pcnt_init(&rot_pcnt_unit);
+    rot_but_pcnt_init(&rot_but_pcnt_unit);
 
     BaseType_t err;
 

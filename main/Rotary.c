@@ -6,17 +6,15 @@
 static const char *TAG = "Rotary";
 
 pcnt_unit_handle_t rot_pcnt_unit = NULL;
-pcnt_channel_handle_t rot_pcnt_chan_a = NULL;
-pcnt_channel_handle_t rot_pcnt_chan_b = NULL;
+static pcnt_channel_handle_t rot_pcnt_chan_a = NULL;
+static pcnt_channel_handle_t rot_pcnt_chan_b = NULL;
 
 pcnt_unit_handle_t rot_but_pcnt_unit = NULL;
-pcnt_channel_handle_t rot_pcnt_chan_but = NULL;
+static pcnt_channel_handle_t rot_pcnt_chan_but = NULL;
 
 SemaphoreHandle_t rotary_mutex;
 
-esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr, 
-                            pcnt_channel_handle_t* pcnt_chan_a_ptr,
-                            pcnt_channel_handle_t* pcnt_chan_b_ptr)
+esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr)
 {
     esp_err_t err;
 
@@ -49,7 +47,7 @@ esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
         .edge_gpio_num = ROT_A_PIN,
         .level_gpio_num = ROT_B_PIN,
     };
-    err = pcnt_new_channel(*pcnt_unit_ptr, &chan_a_config, pcnt_chan_a_ptr);
+    err = pcnt_new_channel(*pcnt_unit_ptr, &chan_a_config, &rot_pcnt_chan_a);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while setting channel A");
         pcnt_unit_disable(*pcnt_unit_ptr);
@@ -61,25 +59,25 @@ esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
         .edge_gpio_num = ROT_B_PIN,
         .level_gpio_num = ROT_A_PIN,
     };
-    err = pcnt_new_channel(*pcnt_unit_ptr, &chan_b_config, pcnt_chan_b_ptr);
+    err = pcnt_new_channel(*pcnt_unit_ptr, &chan_b_config, &rot_pcnt_chan_b);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while setting channel B");
-        pcnt_del_channel(*pcnt_chan_a_ptr);
+        pcnt_del_channel(rot_pcnt_chan_a);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
     }
 
     //! set edge and level actions for pcnt channels
-    err = pcnt_channel_set_edge_action(*pcnt_chan_a_ptr, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE);
-    err = err | pcnt_channel_set_level_action(*pcnt_chan_a_ptr, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
-    err = err | pcnt_channel_set_edge_action(*pcnt_chan_b_ptr, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE);
-    err = err | pcnt_channel_set_level_action(*pcnt_chan_b_ptr, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
+    err = pcnt_channel_set_edge_action(rot_pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE);
+    err = err | pcnt_channel_set_level_action(rot_pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
+    err = err | pcnt_channel_set_edge_action(rot_pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE);
+    err = err | pcnt_channel_set_level_action(rot_pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
     
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while setting edge and level actions");
-        pcnt_del_channel(*pcnt_chan_a_ptr);
-        pcnt_del_channel(*pcnt_chan_b_ptr);
+        pcnt_del_channel(rot_pcnt_chan_a);
+        pcnt_del_channel(rot_pcnt_chan_b);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
@@ -89,8 +87,8 @@ esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     err = pcnt_unit_enable(*pcnt_unit_ptr);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while enabling rotary pcnt");
-        pcnt_del_channel(*pcnt_chan_a_ptr);
-        pcnt_del_channel(*pcnt_chan_b_ptr);
+        pcnt_del_channel(rot_pcnt_chan_a);
+        pcnt_del_channel(rot_pcnt_chan_b);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
@@ -98,8 +96,8 @@ esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     err = pcnt_unit_clear_count(*pcnt_unit_ptr);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while clearing rotary pcnt");
-        pcnt_del_channel(*pcnt_chan_a_ptr);
-        pcnt_del_channel(*pcnt_chan_b_ptr);
+        pcnt_del_channel(rot_pcnt_chan_a);
+        pcnt_del_channel(rot_pcnt_chan_b);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
@@ -107,8 +105,8 @@ esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     err = pcnt_unit_start(*pcnt_unit_ptr);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while starting rotary pcnt");
-        pcnt_del_channel(*pcnt_chan_a_ptr);
-        pcnt_del_channel(*pcnt_chan_b_ptr);
+        pcnt_del_channel(rot_pcnt_chan_a);
+        pcnt_del_channel(rot_pcnt_chan_b);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
@@ -125,8 +123,7 @@ esp_err_t rotary_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     return ESP_OK;
 }
 
-esp_err_t rot_but_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr, 
-                            pcnt_channel_handle_t* pcnt_chan_but_ptr)
+esp_err_t rot_but_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr)
 {
     esp_err_t err;
 
@@ -158,7 +155,7 @@ esp_err_t rot_but_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     pcnt_chan_config_t chan_a_config = {
         .edge_gpio_num = ROT_BUT_PIN
     };
-    err = pcnt_new_channel(*pcnt_unit_ptr, &chan_a_config, pcnt_chan_but_ptr);
+    err = pcnt_new_channel(*pcnt_unit_ptr, &chan_a_config, &rot_pcnt_chan_but);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while setting button channel");
         pcnt_unit_disable(*pcnt_unit_ptr);
@@ -167,11 +164,11 @@ esp_err_t rot_but_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     }
 
     //! set edge and level actions for pcnt channels
-    err = pcnt_channel_set_edge_action(*pcnt_chan_but_ptr, PCNT_CHANNEL_EDGE_ACTION_HOLD, PCNT_CHANNEL_EDGE_ACTION_INCREASE);
+    err = pcnt_channel_set_edge_action(rot_pcnt_chan_but, PCNT_CHANNEL_EDGE_ACTION_HOLD, PCNT_CHANNEL_EDGE_ACTION_INCREASE);
     
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while setting button edge action");
-        pcnt_del_channel(*pcnt_chan_but_ptr);
+        pcnt_del_channel(rot_pcnt_chan_but);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
@@ -181,7 +178,7 @@ esp_err_t rot_but_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     err = pcnt_unit_enable(*pcnt_unit_ptr);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while enabling button pcnt");
-        pcnt_del_channel(*pcnt_chan_but_ptr);
+        pcnt_del_channel(rot_pcnt_chan_but);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
@@ -189,7 +186,7 @@ esp_err_t rot_but_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     err = pcnt_unit_clear_count(*pcnt_unit_ptr);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while clearing button pcnt");
-        pcnt_del_channel(*pcnt_chan_but_ptr);
+        pcnt_del_channel(rot_pcnt_chan_but);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
@@ -197,7 +194,7 @@ esp_err_t rot_but_pcnt_init(pcnt_unit_handle_t* pcnt_unit_ptr,
     err = pcnt_unit_start(*pcnt_unit_ptr);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,"Error while starting button pcnt");
-        pcnt_del_channel(*pcnt_chan_but_ptr);
+        pcnt_del_channel(rot_pcnt_chan_but);
         pcnt_unit_disable(*pcnt_unit_ptr);
         pcnt_del_unit(*pcnt_unit_ptr);
         return err;
