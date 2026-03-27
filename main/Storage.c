@@ -402,6 +402,11 @@ static int16_t save_queue_to_sd(UBaseType_t* item_count)
 
             buf_year = temp_info.data.year;
             break;
+
+        default:
+            ESP_LOGE(TAG, "save_queue_to_sd: unknown data type in queue!");
+            break;
+            
         } // switch
     } // for
 
