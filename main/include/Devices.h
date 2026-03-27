@@ -22,7 +22,8 @@ typedef enum
     DAY,
     HOUR,
     MINUTE,
-    SECOND
+    SECOND,
+    SAVE
 } disp_data_type;
 
 typedef union
@@ -74,3 +75,4 @@ bool rtc_check_and_save_date(uint8_t* nums);
 bool rtc_check_and_save_time(uint8_t* nums);
 
 void sen5x_fan_clean(void);
+void s8_start_calibration(void);
