@@ -1,12 +1,13 @@
 # Air Quality Monitor and Logger
 
-![Box1](images/box1.jpg)
+![Box1](img/box1.jpg)
 
-![Box2](images/box2.gif)
+![Box2](img/box2.gif)
 
 ## 1. Introduction & Overview
 The primary goal of this project was to measure pollutants that were created from FDM 3D printing and learn some embedded programming along the way.
 First version of this project was made with the same hardware but on a mini RP2040 dev board and using Arduino IDE. After making it work, I realized that my main air pollutant was not 3D printing related. It was cigarette smoke from family members smoking nearby and it was seriously affecting the air quality (PM2.5 levels of around 200-300 ug/m3 while the normal level is around 5 ug/m3).
+
 So I decided to switch from the RP2040 with another board with wireless functionality to be able to send the data to an air purifier to automatically adjust its fan speed. ESP32 was the first choice that came to mind since it has wireless functionality and it is a popular choice for embedded systems projects. I decided to use ESP-IDF instead of Arduino IDE and utilize FreeRTOS because there are lots of tasks happening at the same time (reading sensors, updating display, logging data, etc.) and I wanted to manage them properly which was my main problem with the first version using Arduino IDE. I also realized that I enjoy embedded programming and I wanted to learn more about it. 
 
 ## 2. Hardware Architecture
@@ -32,8 +33,14 @@ All devices were soldered onto a 5x7cm perfboard. As I wanted it to be compact a
 
 ![Perfboard](img/perfboard.jpg)
 
-Display, rotary encoder and SEN54's plug are soldered with long wires to make it easier to mount them on the 3D printed case.
 microSD breakout board lays directly below the RTC module because there is not enough space on the perfboard for it.
+Display, rotary encoder and SEN54's plug are soldered with long wires to make it easier to mount them on the 3D printed case.
+
+Speaking of 3D printed case, I started to design the case after building the whole device. I just took crude measurements of the board, the usb port and the microsd slot and went at it.
+
+![Case CAD Image](img/case_cad.jpg)
+
+The cad files are available. It has some support struts on the pegs that need to be cut off. Otherwise it is a simple print.
 
 ## 3. Software Architecture (ESP-IDF)
 The firmware is built using the ESP-IDF framework using C. It strongly utilizes FreeRTOS tasks to manage the different operations at the same time.
@@ -48,6 +55,8 @@ I used the following external libraries:
 - **senseair-s8:** For the Senseair S8 CO2 sensor. Written by me.
 
 I had to write my own libraries for the SEN5x and S8 CO2 sensors before making this project as there were no available ones for ESP-IDF. Writing libraries for a framework I have never worked on before is a scary thing but with the help of some example projects from esp-idf-lib, the original libraries available for Arduino IDE, datasheets of the sensors and AI coding assistants I was able to write them. I am not confident in my C and ESP-IDF skills yet so I am not able to provide any guarantee for the drivers but they seem to work fine for now. They have been running for a couple days straight with no issues.
+
+For the rotary encoder, I utilized ESP32's PCNT (pulse counter) module. I believe it is the best way to handle rotary encoders. It works asynchronously and tasks that have the rotary encoder mutex just read the PCNT registers and reset them after activity.
 
 There are at least 4 tasks running at the same time:
 - `s8_task`: Reads data from the Senseair S8 CO2 sensor.
@@ -78,7 +87,7 @@ Lots of care has been taken to make sure that the sensor box can run for a long 
 ## 5. Challenges & Lessons Learned
 - **Sensor Communication:** When there was lots of serial console output during testing, the Senseair S8 sensor would sometimes not respond to the requests. Later I found out that ESP_LOG also uses UART0 and messages would get mixed during heavy logging. I resolved it by just changing the used UART port from 0 to 1.
 - **Git & Version Control:** I accidentally overwrote the main branch I was working on while trying to merge another branch (which I also accidentally made) using `git pull --rebase`. I was able to recover the lost changes using `git reflog`.
-- **Hardware Integration:**  As I stated in the introduction, I had not planned the hardware integration carefully and it resulted in a cramped perfboard. This made soldering extra difficult and I had to stack components also trying not to make any shorts. I also had to desolder the old prototype's components to reuse them. While doing so, I ripped a pad from the micro sd breakout board. Thankfully it's very large for what it is so I could do a trace repair and not wait for a new one to arrive.
+- **Hardware Integration:**  As I stated in the introduction, I had not planned the hardware integration carefully and it resulted in a cramped perfboard. This made soldering extra difficult and I had to stack components also trying not to make any shorts. I also had to desolder the old prototype's components to reuse them. While doing so, I ripped a pad from the microSD breakout board. Thankfully it's very large for what it is so I could do a trace repair and not wait for a new one to arrive.
 - **No SDHC or SDXC Support:** I couldn't get my microSDXC cards to work with my box and was not able to test with any microSDHC cards because I have none. I only have a 512MB microSD card and it works fine. The box produces about 4.0-4.1MB files daily so it will take a while to fill up. The problem seems to have something to do with my microSD breakout board. It includes a level shifter and may not be compatible with cards that need more precise signaling.
 - **Case Design:** It is just hard to assemble this thing. Also the back cover needs another screw and the micro sd is hard to insert and remove. It either doesn't come off or shoots off like a bullet. But the box is small, looks nice and is easy to 3D print. As long as it holds the components in place, it is fine.
 
