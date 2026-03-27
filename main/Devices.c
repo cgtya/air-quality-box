@@ -499,6 +499,14 @@ void sen54_task(void* arg)
 
 // ---------- SenseAir S8 ----------
 
+// if true, the s8 task starts a background calibration cycle on the sensor
+static bool s8_calibration_request = false;
+
+void s8_start_calibration(void)
+{
+    s8_calibration_request = true;
+}
+
 void s8_task(void* arg)
 {
     esp_err_t err;
@@ -546,6 +554,14 @@ void s8_task(void* arg)
 
     while (s8_available)
     {
+        if (s8_calibration_request)
+        {
+            err = senseair_s8_background_calibration(s8_sensor);
+            if (err != ESP_OK) ESP_LOGE(TAG, "s8_task: Failed to start background calibration!");
+
+            s8_calibration_request = false;
+        }
+
         vTaskDelay(pdMS_TO_TICKS(2000));
         
         err = senseair_s8_read_all(s8_sensor,&status,&co2);

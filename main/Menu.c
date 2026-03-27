@@ -53,6 +53,9 @@ static menu_element_t sen5x_items[] = {
     { .name = "Fan temizleme", .submenus = NULL, .submenu_count = 0, .action = sen5x_fan_clean, .parent = &sensors_items[0], .type = BUTTON }
 };
 
+static menu_element_t s8_items[] = {
+    { .name = "Kalibrasyon", .submenus = NULL, .submenu_count = 0, .action = s8_start_calibration, .parent = &sensors_items[0], .type = BUTTON }
+};
 
 // --- Level 3: Sub-Settings ---
 
@@ -69,7 +72,7 @@ static menu_element_t display_items[] = {
 
 static menu_element_t sensors_items[] = {
     { .name = "Sen5x ayar", .submenus = sen5x_items, .submenu_count = 1, .action = NULL, .parent = &settings_items[3], .type = MENU },
-    { .name = "S8 ayar",    .submenus = NULL, .submenu_count = 0, .action = NULL, .parent = &settings_items[3], .type = MENU }
+    { .name = "S8 ayar",    .submenus = s8_items, .submenu_count = 1, .action = NULL, .parent = &settings_items[3], .type = MENU }
 };
 
 static menu_element_t advanced_items[] = {
