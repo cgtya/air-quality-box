@@ -1,12 +1,12 @@
-[submodule "components/u8g2"]
-	path = components/u8g2
-	url = https://github.com/olikraus/u8g2
-[submodule "components/senseair-s8"]
-	path = components/senseair-s8
-	url = git@github.com:cgtya/senseair-s8.git
-[submodule "components/sen5x"]
-	path = components/sen5x
-	url = git@github.com:cgtya/sen5x.git
-[submodule "components/u8g2-hal-esp-idf"]
-	path = components/u8g2-hal-esp-idf
-	url = git@github.com:cgtya/u8g2-hal-esp-idf.git
+[submodule "src/components/u8g2"]
+	path = src/components/u8g2
+	url = https://github.com/olikraus/u8g2/
+[submodule "src/components/senseair-s8"]
+	path = src/components/senseair-s8
+	url = https://github.com/cgtya/senseair-s8
+[submodule "src/components/sen5x"]
+	path = src/components/sen5x
+	url = https://github.com/cgtya/sen5x
+[submodule "src/components/u8g2-hal-esp-idf"]
+	path = src/components/u8g2-hal-esp-idf
+	url = https://github.com/cgtya/u8g2-hal-esp-idf
