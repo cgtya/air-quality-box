@@ -1,10 +1,10 @@
 # Air Quality Monitor and Logger
 
-![Box1](img/box1.jpg)
+<img src="./img/box1.jpg" width="300" alt="Front"/>
 
-![Box2](img/box2.jpg)
+<img src="./img/box2.jpg" width="300" alt="Side"/>
 
-![Box3](img/box3.jpg)
+<img src="./img/box3.jpg" width="300" alt="Rear"/>
 
 ## 1. Introduction & Overview
 The primary goal of this project was to measure pollutants that were created from FDM 3D printing and learn some embedded programming along the way.
