@@ -2,7 +2,9 @@
 
 ![Box1](img/box1.jpg)
 
-![Box2](img/box2.gif)
+![Box2](img/box2.jpg)
+
+![Box3](img/box3.jpg)
 
 ## 1. Introduction & Overview
 The primary goal of this project was to measure pollutants that were created from FDM 3D printing and learn some embedded programming along the way.
@@ -62,7 +64,7 @@ There are at least 4 tasks running at the same time:
 - `s8_task`: Reads data from the Senseair S8 CO2 sensor.
 - `sen54_task`: Reads data from the SEN54 sensor.
 - `rtc_check_task`: Reads data from the DS3231 RTC module and updates system time.
-- `view_task`: Updates the display with newest available data and handles rotary encoder input.
+- `view_task`: Updates the display with newest available data.
 
 Also, these task run based on what the sensor box is doing.
 - `menu_task`: Runs when the user wants to change the settings of the sensor box.
@@ -72,7 +74,7 @@ Also, these task run based on what the sensor box is doing.
 
 and more will be added in the future.
 
-Display tasks which are `view_task`, `menu_task`, `num_select_task`, `data_logging_task` and `error_log_viewer_task` are blocking tasks and only one of them runs at a time as they are using the same display and rotary encoder. When the user selects a certain display task, for example they wanted to change the time, `menu_task` will be running as the user is selecting the option to change the time. Then it will exit from the `menu_task`, leaving the hardware (display and encoder) to the `num_select_task` to update the time. After the user is done, `num_select_task` will exit and `menu_task` will run again to let the user save the time and return to the `view_task`.
+Display tasks which are `view_task`, `menu_task`, `num_select_task`, `data_logging_task` and `error_log_viewer_task` are UI tasks and only one of them runs at a time as they have to use the same display and rotary encoder. When the user selects a certain display task the current task stop and the other selected one will start, for example they wanted to change the time, `menu_task` will be running as the user is selecting the option to change the time. Then it will exit from the `menu_task`, leaving the hardware (display and encoder) to the `num_select_task` to update the time. After the user is done, `num_select_task` will exit and `menu_task` will run again to let the user save the time and return to the `view_task`.
 
 I tried designing the software as modular as possible. Menu system is designed as a tree structure where each node has a list of children nodes. This makes adding menus and options easier. Also the view display task is designed as a generic task that can display any view. Creating a new view only requires copying two functions (one of which draws the static parts of the view and the other draws the dynamic parts of the view) then adding it to the menu tree and view_task switch.
 
