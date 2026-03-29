@@ -17,7 +17,7 @@ The microcontroller family to use was decided but which one to use was not. I en
 - **Display & Interface:** SSD1306 OLED Display (I2C) and a Rotary Encoder with a push button for navigation.
 - **Storage:** microSD module (SPI) for data logging.
 
-![Wiring diagram](img/wiring_diagram.jpg)
+<img src="./img/wiring_diagram.jpg" width="600" alt="Wiring diagram"/>
 
 I2C0 is used for the DS3231 RTC module and the SEN54 sensor. I2C1 is used for the SSD1306 OLED display. SDA and SCL pins are pulled up with 10k ohm resistors.
 
@@ -27,9 +27,9 @@ SPI2 is used for the microSD module.
 
 Rotary encoder is connected to GPIO 5,7 and the push button is connected to GPIO 6. Its pins are pulled up with 10k ohm resistors and debounced using 100nF capacitors to ground.
 
-All devices were soldered onto a 5x7cm perfboard. As I wanted it to be compact and I had not carefully planned the layout, it got a bit cramped up and gave me a hard time while soldering. And thus this abomination was born.
+All devices were soldered onto a 5x7cm perfboard. As I wanted it to be compact and I had not carefully planned the layout, it got a bit cramped up and gave me a hard time while soldering. And thus this thing was born.
 
-![Perfboard](img/perfboard.jpg)
+<img src="./img/perfboard.jpg" width="600" alt="Bottom of the perfboard"/> <img src="./img/bare.jpg" width="600" alt="The device without its case"/>
 
 microSD breakout board lays directly below the RTC module because there is not enough space on the perfboard for it.
 Display, rotary encoder and SEN54's plug are soldered with long wires to make it easier to mount them on the 3D printed case.
