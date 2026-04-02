@@ -36,7 +36,7 @@ Display, rotary encoder and SEN54's plug are soldered with long wires to make it
 
 Speaking of 3D printed case, I started to design the case after building the whole device. I just took crude measurements of the board, the usb port and the microsd slot and went at it.
 
-<img src="./img/case_cad1.jpg" width="600" alt="Case CAD image 1"/> <img src="./img/case_cad2.jpg" width="600" alt="Case CAD image 3"/> <img src="./img/case_cad3.jpg" width="600" alt="Case CAD image 3"/> 
+<img src="./img/case_cad1.jpg" width="300" alt="Case CAD image 1"/> <img src="./img/case_cad2.jpg" width="300" alt="Case CAD image 3"/> <img src="./img/case_cad3.jpg" width="300" alt="Case CAD image 3"/> 
 
 The cad file is available. It has some support struts on the pegs that need to be cut off. Otherwise it is a simple print.
 
