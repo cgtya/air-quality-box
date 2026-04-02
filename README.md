@@ -36,9 +36,9 @@ Display, rotary encoder and SEN54's plug are soldered with long wires to make it
 
 Speaking of 3D printed case, I started to design the case after building the whole device. I just took crude measurements of the board, the usb port and the microsd slot and went at it.
 
-![Case CAD Image](img/case_cad.jpg)
+<img src="./img/case_cad1.jpg" width="600" alt="Case CAD image 1"/> <img src="./img/case_cad2.jpg" width="600" alt="Case CAD image 3"/> <img src="./img/case_cad3.jpg" width="600" alt="Case CAD image 3"/> 
 
-The cad files are available. It has some support struts on the pegs that need to be cut off. Otherwise it is a simple print.
+The cad file is available. It has some support struts on the pegs that need to be cut off. Otherwise it is a simple print.
 
 ## 3. Software Architecture (ESP-IDF)
 The firmware is built using the ESP-IDF framework using C. It strongly utilizes FreeRTOS tasks to manage the different operations at the same time.
@@ -113,3 +113,17 @@ Make your changes like pin numbers in the `Config.h` file and make sure you are 
 idf.py build
 idf.py flash monitor
 ```
+
+
+## Third-Party Licenses
+This project uses the following third-party libraries:
+### u8g2
+- **License**: Two-Clause BSD License  
+- **Copyright**: Copyright (c) 2016, olikraus@gmail.com  
+- **Source**: https://github.com/olikraus/u8g2  
+- See `src/components/u8g2/LICENSE` for full license text.
+### DS3231 (esp-idf-lib)
+- **License**: MIT License  
+- **Copyright**: Copyright (c) 2015 Richard A Burton, 2016 Bhuvanchandra DV, 2018 Ruslan V. Uss  
+- **Source**: https://github.com/UncleRus/esp-idf-lib  
+- See `src/managed_components/esp-idf-lib__ds3231/LICENSE` for full license text.
