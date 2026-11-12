@@ -1,4 +1,6 @@
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <u8g2_esp32_hal.h>
 #include <string.h>
@@ -54,20 +56,20 @@ static menu_element_t sen5x_items[] = {
 };
 
 static menu_element_t s8_items[] = {
-    { .name = "Kalibrasyon", .submenus = NULL, .submenu_count = 0, .action = s8_start_calibration, .parent = &sensors_items[0], .type = BUTTON }
+    { .name = "Kalibrasyon", .submenus = NULL, .submenu_count = 0, .action = s8_start_calibration, .parent = &sensors_items[1], .type = BUTTON }
 };
 
 // --- Level 3: Sub-Settings ---
 
 static menu_element_t time_date_items[] = {
-    { .name = "Saat Ayari", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)TIME_VAR, .parent = &settings_items[0], .type = NUM_SEL },
-    { .name = "Tarih Ayari", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)DATE_VAR, .parent = &settings_items[0], .type = NUM_SEL }
+    { .name = "Saat Ayari", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(uintptr_t)TIME_VAR, .parent = &settings_items[0], .type = NUM_SEL },
+    { .name = "Tarih Ayari", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(uintptr_t)DATE_VAR, .parent = &settings_items[0], .type = NUM_SEL }
 };
 
 static menu_element_t display_items[] = {
     { .name = "Ters Renk", .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(&inverse_color_info), .parent = &settings_items[2], .type = TOGGLE },
-    { .name = "Ayar zmn asimi",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)MENU_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL },
-    { .name = "Ekran zmn asimi",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(num_vars)DISP_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL }
+    { .name = "Ayar zmn asimi",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(uintptr_t)MENU_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL },
+    { .name = "Ekran zmn asimi",  .submenus = NULL, .submenu_count = 0, .action = (menu_action_t)(uintptr_t)DISP_TIMEOUT_VAR, .parent = &settings_items[2], .type = NUM_SEL }
 };
 
 static menu_element_t sensors_items[] = {
@@ -98,13 +100,14 @@ static menu_element_t main_menu = {
 };
 
 static menu_element_t main_menu_items[] = {
-    { .name = "AirGrdnt",    .submenus = NULL,   .submenu_count = 0, .action = (menu_action_t)(uint8_t)1, .parent = &main_menu, .type = VIEW },
+    { .name = "AirGrdnt",    .submenus = NULL,   .submenu_count = 0, .action = (menu_action_t)(uintptr_t)1, .parent = &main_menu, .type = VIEW },
     { .name = "Ayarlar", .submenus = settings_items, .submenu_count = 5, .action = NULL, .parent = &main_menu, .type = MENU }
 };
 
-static uint8_t menu_timeout = 10;
+static _Atomic uint8_t menu_timeout = 10;
 static menu_element_t* selected_menu = &main_menu;
 static uint8_t selected_menu_element_idx = 0;
+static void* next_task_arg = NULL;
 
 // atomic because expecting access from multiple tasks
 _Atomic menu_type_t current_display_mode = MENU;
@@ -271,24 +274,13 @@ static void switch_to_view(uint8_t viewnum)
     selected_menu = &main_menu;
     selected_menu_element_idx = 0;
 
-    // set display mode to change tasks
-    current_display_mode = VIEW;
-
     // clear pulse counters for rotary
     pcnt_unit_clear_count(rot_but_pcnt_unit);
     pcnt_unit_clear_count(rot_pcnt_unit);
 
-    // start view task
-    esp_err_t err;
-    err = xTaskCreatePinnedToCore(view_task,"view_task",4096,(void*)viewnum,3,NULL,tskNO_AFFINITY);
-    if (err != pdTRUE) {
-        ESP_LOGE(TAG,"Couldnt start view task");
-        return;
-    }
-
-    ESP_LOGI(TAG,"started view_task with the view id %d",viewnum);
-
-    return;
+    // store view id and set display mode so menu_task spawns view_task after releasing mutexes
+    next_task_arg = (void*)(uintptr_t)viewnum;
+    current_display_mode = VIEW;
 }
 
 // switches the selected menu element to the next one
@@ -403,7 +395,7 @@ static void select_menu_element()
             break;
         
         case VIEW:
-            switch_to_view((uint8_t)(selected_element->action));
+            switch_to_view((uint8_t)(uintptr_t)(selected_element->action));
             break;
 
         case BUTTON:
@@ -411,14 +403,9 @@ static void select_menu_element()
             break;
 
         case NUM_SEL:
-            // change display mode to exit the menu task
+            // store target variable and change display mode so menu_task spawns num_select_task after releasing mutexes
+            next_task_arg = (void*)selected_element->action;
             current_display_mode = NUM_SEL;
-
-            // start number selector task
-            esp_err_t err;
-            err = xTaskCreatePinnedToCore(num_select_task,"num_select_task",4096,(void*)selected_element->action,3,NULL,tskNO_AFFINITY);
-            if (err != pdTRUE) ESP_LOGE(TAG,"select_menu_element: Error while starting num_select_task");
-
             break;
 
         case TOGGLE:
@@ -497,31 +484,33 @@ static void error_log_viewer_task(void* arg)
         }
         else
         {
-            const error_log_entry_t* entry = error_log_get_entry(scroll_pos);
-            if (entry != NULL && entry->valid)
+            if (scroll_pos >= count) scroll_pos = count - 1;
+
+            error_log_entry_t entry;
+            if (error_log_get_entry_copy(scroll_pos, &entry))
             {
                 u8g2_SetFont(&u8g2, u8g2_font_Wizzard_tr);
 
                 // header: level + timestamp + position counter
                 char buf[24];
-                sprintf(buf, "%c %02u:%02u:%02u",
-                        entry->level, entry->hour, entry->minute, entry->second);
+                snprintf(buf, sizeof(buf), "%c %02u:%02u:%02u",
+                         entry.level, entry.hour, entry.minute, entry.second);
                 u8g2_DrawStr(&u8g2, 0, 9, buf);
 
-                sprintf(buf, "%u/%u", scroll_pos + 1, count);
+                snprintf(buf, sizeof(buf), "%u/%u", scroll_pos + 1, count);
                 u8g2_DrawStr(&u8g2, 100, 9, buf);
 
                 u8g2_DrawHLine(&u8g2, 0, 11, 128);
 
                 // message text: 4 lines, ~21 chars each (Wizzard font)
-                size_t msg_len = strlen(entry->message);
+                size_t msg_len = strlen(entry.message);
                 char line[22];
 
                 for (uint8_t i = 0; i < 4 && i * 21 < msg_len; i++)
                 {
                     size_t remaining = msg_len - (i * 21);
                     size_t copy_len = remaining < 21 ? remaining : 21;
-                    memcpy(line, entry->message + (i * 21), copy_len);
+                    memcpy(line, entry.message + (i * 21), copy_len);
                     line[copy_len] = '\0';
                     u8g2_DrawStr(&u8g2, 0, 23 + (i * 13), line);
                 }
@@ -573,11 +562,8 @@ static void error_log_viewer_task(void* arg)
 
 static void error_log_viewer_start(void)
 {
+    next_task_arg = NULL;
     current_display_mode = ERROR_LOG;
-
-    esp_err_t err;
-    err = xTaskCreatePinnedToCore(error_log_viewer_task, "errlog_viewer", 4096, NULL, 3, NULL, tskNO_AFFINITY);
-    if (err != pdTRUE) ESP_LOGE(TAG, "error_log_viewer_start: Error starting viewer task");
 }
 
 void menu_task(void* arg)
@@ -596,7 +582,7 @@ void menu_task(void* arg)
 
         // default text based on the given task start argument
         // currently used when indicating if num selecting was successful or not
-        switch ((uint8_t)arg)
+        switch ((uint8_t)(uintptr_t)arg)
         {
         case 1:
             u8g2_SetDrawColor(&u8g2,0);
@@ -644,13 +630,12 @@ void menu_task(void* arg)
         // if menu timeout isnt disabled (0)
         if (menu_timeout)
         {
-            // if current tick is more than last act tick + timeout time in ticks
-            // exit menu
-            if (xTaskGetTickCount() > timeout_time_in_tick+last_act)
+            // if elapsed ticks since last activity exceed timeout time in ticks
+            // exit menu (subtraction is safe against TickType_t wrap-around)
+            if ((xTaskGetTickCount() - last_act) > timeout_time_in_tick)
             {
-                current_display_mode = VIEW;
                 switch_to_view(0);
-                continue;
+                break;
             }
         }
 
@@ -678,8 +663,31 @@ void menu_task(void* arg)
         }
     }
 
-    // release mutex
+    // release mutex before starting the next UI task
     xSemaphoreGive(rotary_mutex);
+
+    BaseType_t err = pdTRUE;
+    switch (current_display_mode)
+    {
+    case VIEW:
+        err = xTaskCreatePinnedToCore(view_task,"view_task",4096,next_task_arg,3,NULL,tskNO_AFFINITY);
+        if (err != pdTRUE) ESP_LOGE(TAG,"Couldnt start view task");
+        else ESP_LOGI(TAG,"started view_task with the view id %u",(unsigned int)(uintptr_t)next_task_arg);
+        break;
+
+    case NUM_SEL:
+        err = xTaskCreatePinnedToCore(num_select_task,"num_select_task",4096,next_task_arg,3,NULL,tskNO_AFFINITY);
+        if (err != pdTRUE) ESP_LOGE(TAG,"select_menu_element: Error while starting num_select_task");
+        break;
+
+    case ERROR_LOG:
+        err = xTaskCreatePinnedToCore(error_log_viewer_task,"errlog_viewer",4096,NULL,3,NULL,tskNO_AFFINITY);
+        if (err != pdTRUE) ESP_LOGE(TAG,"error_log_viewer_start: Error starting viewer task");
+        break;
+
+    default:
+        break;
+    }
 
     ESP_LOGI(TAG,"menu_task DELETED");
     // delete task
@@ -869,7 +877,7 @@ void num_select_task(void* arg)
 {
     int pcnt_value = 0;
     
-    const num_vars var_to_chg = (num_vars)arg;
+    const num_vars var_to_chg = (num_vars)(uintptr_t)arg;
     uint8_t selected_num = 1;
     uint8_t num_selector_cnt = 0;
 
@@ -888,7 +896,7 @@ void num_select_task(void* arg)
 
         //back to menu
         current_display_mode = MENU;
-        esp_err_t err;
+        BaseType_t err;
         err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
         if (err != pdTRUE) ESP_LOGE(TAG,"num_select_task:  Error while starting menu_task task");
 
@@ -899,18 +907,22 @@ void num_select_task(void* arg)
     switch (var_to_chg)
     {
     case TIME_VAR:
-        nums[0] = (uint8_t)sys_time.tm_hour;
-        nums[1] = (uint8_t)sys_time.tm_min;
-        nums[2] = (uint8_t)sys_time.tm_sec;
+        nums[0] = (sys_time.tm_hour >= 0 && sys_time.tm_hour <= 23) ? (uint8_t)sys_time.tm_hour : 0;
+        nums[1] = (sys_time.tm_min >= 0 && sys_time.tm_min <= 59) ? (uint8_t)sys_time.tm_min : 0;
+        nums[2] = (sys_time.tm_sec >= 0 && sys_time.tm_sec <= 59) ? (uint8_t)sys_time.tm_sec : 0;
         num_selector_cnt = 3;
         break;
 
     case DATE_VAR:
-        nums[0] = (uint8_t)sys_time.tm_mday;
-        nums[1] = (uint8_t)(sys_time.tm_mon+1);  //months since january
-        nums[2] = (uint8_t)(sys_time.tm_year-100);   //years since 1900
+    {
+        int yr = sys_time.tm_year - 100; // years since 2000
+        if (yr < 0 || yr > 99) yr = 0;
+        nums[0] = (sys_time.tm_mday >= 1 && sys_time.tm_mday <= 31) ? (uint8_t)sys_time.tm_mday : 1;
+        nums[1] = (sys_time.tm_mon >= 0 && sys_time.tm_mon <= 11) ? (uint8_t)(sys_time.tm_mon+1) : 1;
+        nums[2] = (uint8_t)yr;
         num_selector_cnt = 3;
         break;
+    }
 
     case DISP_TIMEOUT_VAR:
         nums[0] = sleep_timer;
@@ -924,10 +936,11 @@ void num_select_task(void* arg)
     
     default:
         ESP_LOGE(TAG,"num_select_task: Invalid arg var_to_chg!");
+        xSemaphoreGive(sys_time_mutex);
         
         //back to menu
         current_display_mode = MENU;
-        esp_err_t err;
+        BaseType_t err;
         err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
         if (err != pdTRUE) ESP_LOGE(TAG,"num_select_task:  Error while starting menu_task task");
 
@@ -940,6 +953,9 @@ void num_select_task(void* arg)
     // take encoder mutex
     if (xSemaphoreTake(rotary_mutex,pdMS_TO_TICKS(1000)) != pdTRUE) {
         ESP_LOGE(TAG,"num_select_task: Couldnt take rotary mutex, timeout!");
+        current_display_mode = MENU;
+        BaseType_t err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+        if (err != pdTRUE) ESP_LOGE(TAG,"num_select_task: Error while starting menu_task task");
         vTaskDelete(NULL);
     }
 
@@ -1010,8 +1026,8 @@ void num_select_task(void* arg)
 
     // start menu task
     current_display_mode = MENU;
-    esp_err_t err;
-    err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,(void*)status,3,NULL,tskNO_AFFINITY);
+    BaseType_t err;
+    err = xTaskCreatePinnedToCore(menu_task,"menu_task",4096,(void*)(uintptr_t)status,3,NULL,tskNO_AFFINITY);
     if (err != pdTRUE) ESP_LOGE(TAG,"num_select_task:  Error while starting menu_task task");
 
     ESP_LOGI(TAG,"num_select_task DELETED");

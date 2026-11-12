@@ -2,8 +2,10 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <esp_log.h>
 
 #include "ErrorLog.h"
@@ -11,7 +13,7 @@
 
 static error_log_entry_t log_entries[ERROR_LOG_MAX_ENTRIES];
 static uint8_t log_head = 0;   // next write position
-static uint8_t log_count = 0;
+static _Atomic uint8_t log_count = 0;
 static SemaphoreHandle_t log_mutex = NULL;
 
 // save the original vprintf so we can still output to serial
@@ -63,18 +65,29 @@ static int error_log_vprintf(const char *fmt, va_list args)
             msg_start[len - 1] = '\0';
         }
 
-        // grab timestamp from sys_time (best effort, no blocking)
+        // grab timestamp from sys_time (best effort, avoid self-deadlock if caller already holds sys_time_mutex)
         uint8_t h = 0, m = 0, s = 0;
-        if (sys_time_mutex != NULL && xSemaphoreTake(sys_time_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        if (sys_time_mutex != NULL)
         {
-            h = (uint8_t)sys_time.tm_hour;
-            m = (uint8_t)sys_time.tm_min;
-            s = (uint8_t)sys_time.tm_sec;
-            xSemaphoreGive(sys_time_mutex);
+            if (xSemaphoreGetMutexHolder(sys_time_mutex) == xTaskGetCurrentTaskHandle())
+            {
+                h = (uint8_t)sys_time.tm_hour;
+                m = (uint8_t)sys_time.tm_min;
+                s = (uint8_t)sys_time.tm_sec;
+            }
+            else if (xSemaphoreTake(sys_time_mutex, pdMS_TO_TICKS(10)) == pdTRUE)
+            {
+                h = (uint8_t)sys_time.tm_hour;
+                m = (uint8_t)sys_time.tm_min;
+                s = (uint8_t)sys_time.tm_sec;
+                xSemaphoreGive(sys_time_mutex);
+            }
         }
 
-        // write to ring buffer (mutex protected)
-        if (log_mutex != NULL && xSemaphoreTake(log_mutex, pdMS_TO_TICKS(50)) == pdTRUE)
+        // write to ring buffer (mutex protected, avoid self-deadlock if caller holds log_mutex)
+        if (log_mutex != NULL &&
+            xSemaphoreGetMutexHolder(log_mutex) != xTaskGetCurrentTaskHandle() &&
+            xSemaphoreTake(log_mutex, pdMS_TO_TICKS(50)) == pdTRUE)
         {
             error_log_entry_t *entry = &log_entries[log_head];
             strncpy(entry->message, msg_start, ERROR_LOG_MSG_LEN - 1);
@@ -139,4 +152,26 @@ const error_log_entry_t* error_log_get_entry(uint8_t index)
     if (pos < 0) pos += ERROR_LOG_MAX_ENTRIES;
 
     return &log_entries[pos];
+}
+
+bool error_log_get_entry_copy(uint8_t index, error_log_entry_t *out_entry)
+{
+    if (out_entry == NULL || log_mutex == NULL) return false;
+
+    if (xSemaphoreTake(log_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+
+    if (index >= log_count)
+    {
+        xSemaphoreGive(log_mutex);
+        return false;
+    }
+
+    int pos = (int)log_head - 1 - (int)index;
+    if (pos < 0) pos += ERROR_LOG_MAX_ENTRIES;
+
+    *out_entry = log_entries[pos];
+    bool valid = out_entry->valid;
+
+    xSemaphoreGive(log_mutex);
+    return valid;
 }
