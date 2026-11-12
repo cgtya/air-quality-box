@@ -71,6 +71,14 @@ void rtc_check_task(void* arg)
             continue;
         }
 
+        if (old_sys_time.tm_mday != 0 &&
+            old_sys_time.tm_mday != sys_time.tm_mday &&
+            sys_time.tm_hour == 0 && sys_time.tm_min == 0)
+        {
+            ESP_LOGI(TAG, "rtc_check_task: Daily SEN5x fan cleaning triggered");
+            sen5x_fan_clean();
+        }
+
         if ((old_sys_time.tm_sec != sys_time.tm_sec) && data_logging)
         {
             BaseType_t err;
@@ -138,6 +146,20 @@ static esp_err_t set_up_ds3231()
     }
     rtc_batt_dead = osc_stop_flag;
 
+    if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(1000)) != pdTRUE)
+        ESP_LOGE(TAG, "set_up_ds3231: couldnt take sys_time mutex (how tf). dont care going ahead");
+
+    ds3231_get_time(&ds3231,&sys_time);
+
+    ESP_LOGI(TAG,"ds3231 initialized successfully");
+    
+    // tm_mon is the number of months since january,
+    // tm_year is the number of years since 1900
+    ESP_LOGI(TAG,"Date / time: %d-%d-%d  %d.%d.%d",sys_time.tm_mday,sys_time.tm_mon+1,sys_time.tm_year+1900,
+                                                    sys_time.tm_hour,sys_time.tm_min,sys_time.tm_sec);
+        
+    xSemaphoreGive(sys_time_mutex);
+
     // if rtc battery didnt die, start rtc task right away
     if (!rtc_batt_dead) 
     {
@@ -152,20 +174,6 @@ static esp_err_t set_up_ds3231()
     {
         ESP_LOGW(TAG,"RTC Battery is dead!");
     }
-
-    if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(1000)) != pdTRUE)
-        ESP_LOGE(TAG, "set_up_ds3231: couldnt take sys_time mutex (how tf). dont care going ahead");
-
-    ds3231_get_time(&ds3231,&sys_time);
-
-    ESP_LOGI(TAG,"ds3231 initialized successfully");
-    
-    // tm_mon is the number of months since january,
-    // tm_year is the number of years since 1900
-    ESP_LOGI(TAG,"Date / time: %d-%d-%d  %d.%d.%d",sys_time.tm_mday,sys_time.tm_mon+1,sys_time.tm_year+1900,
-                                                    sys_time.tm_hour,sys_time.tm_min,sys_time.tm_sec);
-        
-    xSemaphoreGive(sys_time_mutex);
 
     rtc_available = true;
     return ESP_OK;
@@ -355,6 +363,13 @@ void sen54_task(void* arg)
     
     vTaskDelay(pdMS_TO_TICKS(200));
 
+    // Set automatic fan cleaning interval to 1 day (86400 seconds) as fallback
+    err = sen5x_write_auto_cleaning_interval(&sen54, 86400);
+    if (err != ESP_OK)
+    {
+        ESP_LOGW(TAG, "sen54_task: Could not set daily auto-cleaning interval on sensor");
+    }
+
     //start pm measurement
     err = sen5x_start_measurement(&sen54);
     if (err != ESP_OK)
@@ -407,7 +422,11 @@ void sen54_task(void* arg)
 
         if (fan_clean_request)
         {
-            sen5x_start_fan_cleaning(&sen54);
+            ESP_LOGI(TAG, "sen54_task: Starting fan cleaning cycle");
+            if (sen5x_start_fan_cleaning(&sen54) != ESP_OK)
+            {
+                ESP_LOGE(TAG, "sen54_task: Failed to start fan cleaning!");
+            }
             fan_clean_request = false;
         }
         // read data ready flag
