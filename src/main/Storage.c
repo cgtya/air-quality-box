@@ -1,9 +1,12 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <string.h>
+#include <math.h>
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
@@ -15,8 +18,6 @@
 
 #include "Config.h"
 #include "Devices.h"
-#include "freertos/idf_additions.h"
-#include "freertos/projdefs.h"
 
 static const char* TAG = "Storage";
 
@@ -27,6 +28,8 @@ static const char mount_point[] = "/sdcard";
 SemaphoreHandle_t sdcard_mutex = NULL; // TODO unused
 
 static uint8_t sd_write_errors = 0;
+static uint8_t last_w_day = 0;
+static bool sd_mounted = false;
 
 bool get_sd_health = false;
 
@@ -113,21 +116,6 @@ void toggle_data_logging(void)
     }
     else    // start logging if not
     {
-        // check if sd card is available
-        if (mount_sdspi(get_sd_health) != ESP_OK)
-        {
-            ESP_LOGE(TAG, "toggle_data_logging: sd card not available");
-            data_logging = false;
-            return;
-        }
-
-        if (unmount_sdspi() != ESP_OK)
-        {
-            ESP_LOGE(TAG, "toggle_data_logging: sd card couldnt be unmounted");
-            data_logging = false;
-            return;
-        }
-
         if (rtc_batt_dead)
         {
             ESP_LOGE(TAG, "toggle_data_logging: rtc battery died! set time/date");
@@ -135,11 +123,32 @@ void toggle_data_logging(void)
             return;
         }
         
-        if (data_queue == NULL)
+        if (data_queue == NULL || sdcard_mutex == NULL)
         {
-            ESP_LOGE(TAG, "toggle_data_logging: data queue not initialized properly! reboot system");
+            ESP_LOGE(TAG, "toggle_data_logging: data queue or mutex not initialized properly! reboot system");
             data_logging = false;
             return;
+        }
+
+        // Wait for any previous data_logging_task to finish and release the SD card
+        if (xSemaphoreTake(sdcard_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+        {
+            ESP_LOGE(TAG, "toggle_data_logging: sdcard busy, try again");
+            data_logging = false;
+            return;
+        }
+
+        // check if sd card is available and keep it mounted for the logging session
+        if (!sd_mounted)
+        {
+            if (mount_sdspi(get_sd_health) != ESP_OK)
+            {
+                ESP_LOGE(TAG, "toggle_data_logging: sd card not available");
+                data_logging = false;
+                xSemaphoreGive(sdcard_mutex);
+                return;
+            }
+            sd_mounted = true;
         }
 
         // reset write error counter
@@ -148,24 +157,22 @@ void toggle_data_logging(void)
         // start logging task
         data_logging = true;
         BaseType_t err;
-        err = xTaskCreatePinnedToCore(data_logging_task,"data_loggging_task",4096,NULL,3,NULL,tskNO_AFFINITY);
+        err = xTaskCreatePinnedToCore(data_logging_task,"data_logging_task",4096,NULL,3,NULL,tskNO_AFFINITY);
         if (err != pdTRUE)
         {
             ESP_LOGE(TAG, "toggle_data_logging: couldnt start data_logging_task!");
             data_logging = false;
+            unmount_sdspi();
+            sd_mounted = false;
+            xSemaphoreGive(sdcard_mutex);
             return;
         }
+
+        xSemaphoreGive(sdcard_mutex);
         return;
     }
 }
 
-
-// used to check if the day changed during
-// the queue write operation
-// to stop opening and closing the file and mounting sd repeatedly
-// 0 == card not mounted
-// 4 == card mounted and yyyy-mm-04 file is open
-static uint8_t last_w_day = 0;
 
 /**
  * data_queue items:
@@ -199,38 +206,98 @@ static int buf_second = -1;
 
 static uint16_t buf_co2 = 0;
 
-static float buf_humidity = -1;
-static float buf_temp = -1;
-static float buf_pm1p0 = -1;
-static float buf_pm2p5 = -1;
-static float buf_pm4p0 = -1;
-static float buf_pm10p0 = -1;
-static float buf_voc = -1;
+static float buf_humidity = NAN;
+static float buf_temp = NAN;
+static float buf_pm1p0 = NAN;
+static float buf_pm2p5 = NAN;
+static float buf_pm4p0 = NAN;
+static float buf_pm10p0 = NAN;
+static float buf_voc = NAN;
 
 static FILE* f = NULL;
 
 static char file_path[30];
 
-// mounts the sd if not mounted, creates the file if not created,
+static void reset_log_buffers(void)
+{
+    buf_year = -1;
+    buf_month = -1;
+    buf_day = -1;
+    buf_hour = -1;
+    buf_minute = -1;
+    buf_second = -1;
+    buf_co2 = 0;
+    buf_humidity = NAN;
+    buf_temp = NAN;
+    buf_pm1p0 = NAN;
+    buf_pm2p5 = NAN;
+    buf_pm4p0 = NAN;
+    buf_pm10p0 = NAN;
+    buf_voc = NAN;
+}
+
+// creates the folder/file if not created and writes one buffered row
 static esp_err_t send_buffer_to_sd()
 {
-    // if card isnt mounted, mount the card
-    if (last_w_day == 0) mount_sdspi(get_sd_health);
-
-    // if day changed, open new file
-    if (last_w_day != buf_day)
+    if (!sd_mounted)
     {
-        // if sd was already mounted but day changed, close the file
-        if (last_w_day != 0) 
+        return ESP_FAIL;
+    }
+
+    // Format the CSV row in RAM first so the file stays open for the minimum time
+    char row_buf[128];
+    int pos = 0;
+
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%02u.%02u.%02u,",
+                    (unsigned)buf_hour, (unsigned)buf_minute, (unsigned)buf_second);
+
+    if (!isnan(buf_humidity)) pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%.2f", buf_humidity);
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, ",");
+
+    if (!isnan(buf_temp)) pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%.2f", buf_temp);
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, ",");
+
+    if (!isnan(buf_pm10p0)) pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%.1f", buf_pm10p0);
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, ",");
+
+    if (!isnan(buf_pm4p0)) pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%.1f", buf_pm4p0);
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, ",");
+
+    if (!isnan(buf_pm2p5)) pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%.1f", buf_pm2p5);
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, ",");
+
+    if (!isnan(buf_pm1p0)) pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%.1f", buf_pm1p0);
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, ",");
+
+    if (!isnan(buf_voc)) pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%.0f", buf_voc);
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, ",");
+
+    if (buf_co2 != 0) pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "%u", (unsigned)buf_co2);
+    pos += snprintf(row_buf + pos, sizeof(row_buf) - pos, "\n");
+
+    if (pos < 0 || (size_t)pos >= sizeof(row_buf))
+    {
+        ESP_LOGE(TAG, "send_buffer_to_sd: row buffer formatting failed");
+        return ESP_FAIL;
+    }
+
+    // if day changed or file is not open yet for this batch, open the file
+    if (last_w_day != buf_day || f == NULL)
+    {
+        // if previous day's file was open, flush, sync, and close it first
+        if (f != NULL) 
         {
+            fflush(f);
+            fsync(fileno(f));
             fclose(f);
             f = NULL;
+            last_w_day = 0;
         }
 
         // check if year folder exists. if not, create
         struct stat st;
         
-        sprintf(file_path, "/sdcard/%04d",buf_year);
+        snprintf(file_path, sizeof(file_path), "/sdcard/%04d", buf_year);
         if (stat(file_path, &st) == -1) 
         {
             if (mkdir(file_path, 0700) != 0)
@@ -243,18 +310,17 @@ static esp_err_t send_buffer_to_sd()
         bool file_created = false;
 
         // build the file path
-        sprintf(file_path, "/sdcard/%04d/%02d-%02d.csv",buf_year,buf_month,buf_day);
+        snprintf(file_path, sizeof(file_path), "/sdcard/%04d/%02d-%02d.csv", buf_year, buf_month, buf_day);
 
         // check if it exists first
         if (stat(file_path, &st) == -1) file_created = true;
 
-        // open the day file
-        f = fopen(file_path,"a");
-        
-        // null check
+        // open the day file in append mode
+        f = fopen(file_path, "a");
         if (f == NULL)
         {
-            ESP_LOGE(TAG, "send_buffer_to_sd: error while trying to open the file %s",file_path);
+            ESP_LOGE(TAG, "send_buffer_to_sd: error while trying to open the file %s", file_path);
+            last_w_day = 0;
             return ESP_FAIL;
         }
 
@@ -264,11 +330,13 @@ static esp_err_t send_buffer_to_sd()
         // if the file was just created, print csv header
         if (file_created)
         {
-            int err = 0;
-            err = fprintf(f,"Time,RelHumidity,Temperature,PM10,PM4,PM2.5,PM1,VOCIndex,CO2\n");
-            if (err < 0)
+            static const char csv_header[] = "Time,RelHumidity,Temperature,PM10,PM4,PM2.5,PM1,VOCIndex,CO2\n";
+            if (fwrite(csv_header, 1, sizeof(csv_header) - 1, f) != (sizeof(csv_header) - 1))
             {
                 ESP_LOGE(TAG, "send_buffer_to_sd: error while printing csv file header");
+                fclose(f);
+                f = NULL;
+                last_w_day = 0;
                 return ESP_FAIL;
             }
 
@@ -277,39 +345,13 @@ static esp_err_t send_buffer_to_sd()
 
     } // if day changed, open new file
 
-    // go to the end of the file
-    fseek(f,0,SEEK_END);
-
-    // write time
-    fprintf(f, "%02u.%02u.%02u,", buf_hour, buf_minute, buf_second);
-
-    // write sensor data (latest known values, empty if sensor hasn't reported yet)
-    if (buf_humidity != -1) fprintf(f, "%.2f", buf_humidity);
-    fprintf(f, ",");
-
-    if (buf_temp != -1) fprintf(f, "%.2f", buf_temp);
-    fprintf(f, ",");
-
-    if (buf_pm10p0 != -1) fprintf(f, "%.1f", buf_pm10p0);
-    fprintf(f, ",");
-
-    if (buf_pm4p0 != -1) fprintf(f, "%.1f", buf_pm4p0);
-    fprintf(f, ",");
-
-    if (buf_pm2p5 != -1) fprintf(f, "%.1f", buf_pm2p5);
-    fprintf(f, ",");
-
-    if (buf_pm1p0 != -1) fprintf(f, "%.1f", buf_pm1p0);
-    fprintf(f, ",");
-
-    if (buf_voc != -1) fprintf(f, "%.0f", buf_voc);
-    fprintf(f, ",");
-
-    if (buf_co2 != 0) fprintf(f, "%d", buf_co2);
-
-    if (fprintf(f, "\n") < 0)
+    // write the entire formatted CSV line in a single operation
+    if (fwrite(row_buf, 1, (size_t)pos, f) != (size_t)pos)
     {
         ESP_LOGE(TAG, "send_buffer_to_sd: error while trying to write data to sd");
+        fclose(f);
+        f = NULL;
+        last_w_day = 0;
         return ESP_FAIL;
     }
 
@@ -410,15 +452,21 @@ static int16_t save_queue_to_sd(UBaseType_t* item_count)
         } // switch
     } // for
 
-    // close file and unmount sd after write operation is done
-    fclose(f);
-    f = NULL;
-    if (unmount_sdspi() != ESP_OK)
+    // Flush, sync to physical SD card, and close file immediately after batch write
+    if (f != NULL)
     {
-        ESP_LOGE(TAG, "save_queue_to_sd: couldnt unmount sd");
-        return -1;
+        if (fflush(f) != 0 || fsync(fileno(f)) != 0)
+        {
+            ESP_LOGE(TAG, "save_queue_to_sd: error while syncing file to sd");
+            sd_write_errors++;
+        }
+        if (fclose(f) != 0)
+        {
+            ESP_LOGE(TAG, "save_queue_to_sd: error while closing file");
+            sd_write_errors++;
+        }
+        f = NULL;
     }
-
     last_w_day = 0;
 
     temp_time = (esp_timer_get_time() - temp_time)/1000;
@@ -437,13 +485,25 @@ void data_logging_task(void* arg)
         vTaskDelete(NULL);
     }
 
+    if (sdcard_mutex == NULL || xSemaphoreTake(sdcard_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+    {
+        ESP_LOGE(TAG, "data_logging_task: couldnt take sdcard_mutex!");
+        data_logging = false;
+        vTaskDelete(NULL);
+    }
+
+    reset_log_buffers();
+
     UBaseType_t queue_items_count;
     while (data_logging)
     {
         // if write error threshold is exceeded, disable data logging
-        if (sd_write_errors > MAX_WRITE_ERRORS) data_logging = false;
+        if (sd_write_errors > MAX_WRITE_ERRORS)
+        {
+            data_logging = false;
+            break;
+        }
 
-        // TODO implement data logging
         vTaskDelay(pdMS_TO_TICKS(10));
 
         queue_items_count = uxQueueMessagesWaiting(data_queue);
@@ -453,13 +513,25 @@ void data_logging_task(void* arg)
         if (queue_items_count > DATA_QUEUE_SIZE/2) save_queue_to_sd(&queue_items_count);
         
     }
+
+    // Ensure file is synced and closed if still open
+    if (f != NULL)
+    {
+        fflush(f);
+        fsync(fileno(f));
+        fclose(f);
+        f = NULL;
+        last_w_day = 0;
+    }
     
     // empty the queue
     disp_info temp;
-    while (xQueueReceive(data_queue,&temp,pdMS_TO_TICKS(100)) != pdTRUE);
+    while (xQueueReceive(data_queue,&temp,0) == pdTRUE);
 
-    // will skip the first second when data logging is restarted
-    buf_year = -1;
+    // reset buffers so next logging session starts clean
+    reset_log_buffers();
+
+    xSemaphoreGive(sdcard_mutex);
 
     vTaskDelete(NULL);
 }
