@@ -1,5 +1,9 @@
 #include <stdint.h>
+#include <stdio.h>
+#include <math.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <esp_log.h>
 #include <u8g2.h>
@@ -13,7 +17,7 @@
 static const char* TAG = "View";
 
 static uint8_t selected_view = 1;
-uint8_t sleep_timer = 10;
+_Atomic uint8_t sleep_timer = 10;
 
 static void view_1_airgradient_base(u8g2_t* disp_u8g2);
 static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info);
@@ -88,7 +92,7 @@ void view_task(void* arg)
     bool display_sleep = 0;
 
     //! set selected view if specified when starting the view task
-    if (arg != NULL) selected_view = (uint8_t)arg;
+    if (arg != NULL) selected_view = (uint8_t)(uintptr_t)arg;
 
     //! rotary pulse counter variable
     int pcnt_value = 0;
@@ -132,9 +136,9 @@ void view_task(void* arg)
         // if display is awake and sleep isnt off (0)
         if (!display_sleep && sleep_timer)
         {
-            // and if current tick is more than last tick + sleep time in ticks
-            // go to sleep
-            if (xTaskGetTickCount() > sleep_time_in_tick+last_act)
+            // and if elapsed ticks since last activity exceed sleep time in ticks
+            // go to sleep (subtraction is safe against TickType_t wrap-around)
+            if ((xTaskGetTickCount() - last_act) > sleep_time_in_tick)
             {
                 display_sleep = true;
                 u8g2_SetPowerSave(&u8g2,1);
@@ -260,11 +264,14 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
     {
     case VOC:
         u8g2_SetDrawColor(disp_u8g2,0);
-        u8g2_DrawBox(disp_u8g2,88,45,40,33);
+        u8g2_DrawBox(disp_u8g2,88,45,40,19);
 
         u8g2_SetDrawColor(disp_u8g2,1);
         u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
-        sprintf(buf,"%.0f",info->data.voc_index);
+        if (isnan(info->data.voc_index))
+            snprintf(buf,sizeof(buf),"--");
+        else
+            snprintf(buf,sizeof(buf),"%.0f",info->data.voc_index);
         u8g2_DrawStr(disp_u8g2,93,58,buf);
         break;
 
@@ -274,7 +281,10 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 
         u8g2_SetDrawColor(disp_u8g2,1);
         u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
-        sprintf(buf,"%.0f",info->data.PM2p5);
+        if (isnan(info->data.PM2p5))
+            snprintf(buf,sizeof(buf),"--");
+        else
+            snprintf(buf,sizeof(buf),"%.0f",info->data.PM2p5);
         u8g2_DrawStr(disp_u8g2,0,47,buf);
         break;
 
@@ -284,7 +294,7 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 
         u8g2_SetDrawColor(disp_u8g2,1);
         u8g2_SetFont(disp_u8g2,u8g2_font_luRS12_tr);
-        sprintf(buf,"%u",info->data.co2);
+        snprintf(buf,sizeof(buf),"%u",info->data.co2);
         u8g2_DrawStr(disp_u8g2,39,47,buf);
         break;
 
@@ -294,7 +304,10 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 
         u8g2_SetDrawColor(disp_u8g2,1);
         u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
-        sprintf(buf,"%.1f",info->data.amb_temperature);
+        if (isnan(info->data.amb_temperature))
+            snprintf(buf,sizeof(buf),"--");
+        else
+            snprintf(buf,sizeof(buf),"%.1f",info->data.amb_temperature);
         u8g2_DrawStr(disp_u8g2,0,9,buf);
         break;
 
@@ -304,7 +317,10 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 
         u8g2_SetDrawColor(disp_u8g2,1);
         u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
-        sprintf(buf,"%.1f",info->data.rel_humidity);
+        if (isnan(info->data.rel_humidity))
+            snprintf(buf,sizeof(buf),"--");
+        else
+            snprintf(buf,sizeof(buf),"%.1f",info->data.rel_humidity);
         u8g2_DrawStr(disp_u8g2,101,9,buf);
         u8g2_DrawStr(disp_u8g2,91,9,"%");
         break;
@@ -315,7 +331,7 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
 
         u8g2_SetDrawColor(disp_u8g2,1);
         u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
-        sprintf(buf,"%02u",info->data.hour);
+        snprintf(buf,sizeof(buf),"%02u",(unsigned int)info->data.hour);
         u8g2_DrawStr(disp_u8g2,91,27,buf);
 
         u8g2_DrawStr(disp_u8g2,106,26,":");
@@ -323,14 +339,23 @@ static void view_1_airgradient_upd(u8g2_t* disp_u8g2, disp_info* info)
     
     case MINUTE:
         u8g2_SetFont(disp_u8g2,u8g2_font_Wizzard_tr);
-        sprintf(buf,"%02u",info->data.minute);
+        snprintf(buf,sizeof(buf),"%02u",(unsigned int)info->data.minute);
         u8g2_DrawStr(disp_u8g2,113,27,buf);
         break;
 
     // draws the floppy icon when data is being saved to sd card
     case SAVE:
         if (info->data.co2 != 0) // if data logging is on, show floppy icon
+        {
+            u8g2_SetDrawColor(disp_u8g2,1);
             u8g2_DrawBitmap(disp_u8g2,53,0,2,10,floppy_icon);
+        }
+        else
+        {
+            u8g2_SetDrawColor(disp_u8g2,0);
+            u8g2_DrawBox(disp_u8g2,53,0,16,10);
+            u8g2_SetDrawColor(disp_u8g2,1);
+        }
         break;
 
     default:
