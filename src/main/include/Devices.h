@@ -1,5 +1,8 @@
 #pragma once
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <stdint.h>
 #include <esp_log.h>
@@ -69,7 +72,7 @@ extern SemaphoreHandle_t sys_time_mutex;
 extern  _Atomic bool data_logging;
 
 // rtc stop flag variable
-extern bool rtc_batt_dead;
+extern _Atomic bool rtc_batt_dead;
 
 bool rtc_check_and_save_date(uint8_t* nums);
 bool rtc_check_and_save_time(uint8_t* nums);

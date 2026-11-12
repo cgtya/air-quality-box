@@ -1,5 +1,8 @@
 #pragma once
 
-extern uint8_t sleep_timer;
+#include <stdint.h>
+#include <stdatomic.h>
+
+extern _Atomic uint8_t sleep_timer;
 
 void view_task(void* arg);

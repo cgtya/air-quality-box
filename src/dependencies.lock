@@ -68,11 +68,11 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.5.2
+    version: 6.1.0
 direct_dependencies:
 - esp-idf-lib/ds3231
 - esp-idf-lib/i2cdev
 - idf
 manifest_hash: efec57d19d3bec8020b3d925bb5e168854eddec93a73b207bd3ee27fdd695293
 target: esp32s3
-version: 2.0.0
+version: 3.0.0

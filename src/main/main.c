@@ -1,5 +1,6 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include <u8g2_esp32_hal.h>
 
