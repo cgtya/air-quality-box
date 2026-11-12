@@ -35,6 +35,14 @@ uint8_t error_log_get_count(void);
 const error_log_entry_t* error_log_get_entry(uint8_t index);
 
 /**
+ * @brief Thread-safely copies a log entry by index into out_entry.
+ * @param index 0 = newest, (count-1) = oldest
+ * @param[out] out_entry Destination buffer to copy the entry into.
+ * @return true if valid entry copied, false otherwise.
+ */
+bool error_log_get_entry_copy(uint8_t index, error_log_entry_t *out_entry);
+
+/**
  * @brief Clears the error log buffer.
  */
 void clear_error_buffer(void);

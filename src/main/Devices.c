@@ -1,4 +1,6 @@
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <esp_log.h>
 #include <i2cdev.h>
@@ -31,7 +33,7 @@ _Atomic bool data_logging = false;
 
 // ds3231 rtc variables
 static i2c_dev_t ds3231;
-bool rtc_batt_dead = true;
+_Atomic bool rtc_batt_dead = true;
 bool rtc_available = false;
 
 // sen5x descriptor
@@ -61,7 +63,13 @@ void rtc_check_task(void* arg)
         }
 
         old_sys_time = sys_time;
-        ds3231_get_time(&ds3231,&sys_time);
+        if (ds3231_get_time(&ds3231,&sys_time) != ESP_OK)
+        {
+            ESP_LOGE(TAG, "rtc_check_task: Error reading time from ds3231");
+            xSemaphoreGive(sys_time_mutex);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
 
         if ((old_sys_time.tm_sec != sys_time.tm_sec) && data_logging)
         {
@@ -119,7 +127,8 @@ static esp_err_t set_up_ds3231()
     }
 
     // update rtc battery status (to check if the timekeeping stopped)
-    err = ds3231_get_oscillator_stop_flag(&ds3231,&rtc_batt_dead);
+    bool osc_stop_flag = false;
+    err = ds3231_get_oscillator_stop_flag(&ds3231, &osc_stop_flag);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG,"Communication error with ds3231 rtc! (while reading stop flag)");
@@ -127,6 +136,7 @@ static esp_err_t set_up_ds3231()
         rtc_available = false;
         return ESP_FAIL;
     }
+    rtc_batt_dead = osc_stop_flag;
 
     // if rtc battery didnt die, start rtc task right away
     if (!rtc_batt_dead) 
@@ -183,8 +193,10 @@ bool rtc_check_and_save_date(uint8_t* nums)
     if ((nums[1] == 4) || (nums[1] == 6) || (nums[1] == 9) || (nums[1] == 11))
         if (nums[0] > 30) return false;
 
-    // february
-    if ((nums[1] == 2) && (nums[0] > 28)) return false;
+    // february (with leap year check for 2000-2099)
+    uint16_t full_year = 2000 + nums[2];
+    bool is_leap = ((full_year % 4 == 0 && full_year % 100 != 0) || (full_year % 400 == 0));
+    if ((nums[1] == 2) && (nums[0] > (is_leap ? 29 : 28))) return false;
     
     // take sys_time mutex
     if (xSemaphoreTake(sys_time_mutex,pdMS_TO_TICKS(1000)) != pdTRUE)
@@ -193,11 +205,10 @@ bool rtc_check_and_save_date(uint8_t* nums)
         return false;
     }
 
+    if (rtc_batt_dead) ds3231_get_time(&ds3231, &sys_time);
+
     // create temp time struct and fill with new date values
-    struct tm temp_time;
-    temp_time.tm_hour = sys_time.tm_hour;
-    temp_time.tm_min = sys_time.tm_min;
-    temp_time.tm_sec = sys_time.tm_sec;
+    struct tm temp_time = sys_time;
 
     // give sys_time mutex
     xSemaphoreGive(sys_time_mutex);
@@ -213,6 +224,12 @@ bool rtc_check_and_save_date(uint8_t* nums)
     {
         ESP_LOGE(TAG, "rtc_check_and_save_date: Error while trying to set date!");
         return false;
+    }
+
+    if (xSemaphoreTake(sys_time_mutex, pdMS_TO_TICKS(1000)) == pdTRUE)
+    {
+        sys_time = temp_time;
+        xSemaphoreGive(sys_time_mutex);
     }
 
     ESP_LOGI(TAG, "Date set successfully! %02u.%02u.20%02u",nums[0],nums[1],nums[2]);
@@ -260,14 +277,10 @@ bool rtc_check_and_save_time(uint8_t* nums)
     }
 
     // create temp time struct and fill with new time values
-    struct tm temp_time;
+    struct tm temp_time = sys_time;
     temp_time.tm_hour = nums[0];
     temp_time.tm_min = nums[1];
     temp_time.tm_sec = nums[2];
-
-    temp_time.tm_year = sys_time.tm_year;
-    temp_time.tm_mon = sys_time.tm_mon;
-    temp_time.tm_mday = sys_time.tm_mday;
     
     xSemaphoreGive(sys_time_mutex);
 
@@ -288,14 +301,22 @@ bool rtc_check_and_save_time(uint8_t* nums)
         return false;
     }
 
+    if (xSemaphoreTake(sys_time_mutex, pdMS_TO_TICKS(1000)) == pdTRUE)
+    {
+        sys_time = temp_time;
+        xSemaphoreGive(sys_time_mutex);
+    }
+
     // start rtc task to update system time
     // if it wasnt started at boot because of a dead battery
     if (rtc_batt_dead)
     {
+        rtc_batt_dead = false;
         BaseType_t errX;
         errX = xTaskCreatePinnedToCore(rtc_check_task,"rtc_check_task",4096,NULL,3,NULL,tskNO_AFFINITY);
         if (errX != pdTRUE) 
         {
+            rtc_batt_dead = true;
             ESP_LOGE(TAG,"Error while starting rtc_check_task!");
         }
     }
@@ -307,7 +328,7 @@ bool rtc_check_and_save_time(uint8_t* nums)
 // ---------- SEN54 PM ----------
 
 // sen5x_fan_clean function sets this to true and the task starts the fan cleaning
-static bool fan_clean_request = false;
+static _Atomic bool fan_clean_request = false;
 
 void sen5x_fan_clean(void)
 {
@@ -349,7 +370,8 @@ void sen54_task(void* arg)
 
     // TODO reactivate this, currently commented out for development
     //does a fan cleaning cycle on every boot
-    //err = sen5x_start_fan_cleaning(&sen54);
+    /*
+    err = sen5x_start_fan_cleaning(&sen54);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG,"sen54_task: Communication error with sen54 sensor! (while starting fan cleaning) Stopping task!");
@@ -358,6 +380,7 @@ void sen54_task(void* arg)
         memset(&sen54,0,sizeof(i2c_dev_t));
         vTaskDelete(NULL);
     }
+    */
 
     ESP_LOGI(TAG,"sen54_task: SEN5x initialized successfully, task STARTED");
 
@@ -500,7 +523,7 @@ void sen54_task(void* arg)
 // ---------- SenseAir S8 ----------
 
 // if true, the s8 task starts a background calibration cycle on the sensor
-static bool s8_calibration_request = false;
+static _Atomic bool s8_calibration_request = false;
 
 void s8_start_calibration(void)
 {

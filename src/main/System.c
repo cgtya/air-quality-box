@@ -1,4 +1,6 @@
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include <esp_log.h>
 #include <esp_system.h>
 #include <soc/rtc_cntl_reg.h>
@@ -36,7 +38,7 @@ void diag_task(void* arg)
         vTaskDelay(pdMS_TO_TICKS(1000));
 
         // check if the queue is full
-        if (uxQueueSpacesAvailable(mem_free_s) > 1)
+        if (uxQueueSpacesAvailable(mem_free_s) == 0)
         {
             // take the oldest value
             xQueueReceive(mem_free_s,&buf,pdMS_TO_TICKS(100));
@@ -51,7 +53,7 @@ void diag_task(void* arg)
 
         if (count % 10 == 0)
         {
-            ESP_LOGI(TAG, "diag_task free heap size last sec:%u", buf);
+            ESP_LOGI(TAG, "diag_task free heap size last sec:%u", (unsigned int)buf);
         }
 
         // add free size to sum each second for minutes average;
@@ -63,16 +65,15 @@ void diag_task(void* arg)
         else
         {
             // check if the queue is full
-            if (uxQueueSpacesAvailable(mem_free_m) > 1)
+            if (uxQueueSpacesAvailable(mem_free_m) == 0)
             {
                 // take the oldest value
                 xQueueReceive(mem_free_m,&buf,pdMS_TO_TICKS(100));
             }
-            sum = sum / count;
-            xQueueSendToBack(mem_free_m, &sum, pdMS_TO_TICKS(100));
+            size_t avg = sum / count;
+            xQueueSendToBack(mem_free_m, &avg, pdMS_TO_TICKS(100));
 
-            // TODO this returns garbage!
-            ESP_LOGI(TAG, "diag_task free heap size min:%u", sum);
+            ESP_LOGI(TAG, "diag_task free heap size min:%u", (unsigned int)avg);
 
             sum = 0;
             count = 0;
